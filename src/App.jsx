@@ -348,11 +348,7 @@ function AppPanel() {
     navigator.clipboard.writeText(text)
     saveApplication(selectedJob)
     window.open(selectedJob.url, '_blank')
-    setTimeout(() => {
-      const li = selectedJob.humanData?.linkedinUrl || selectedJob.linkedinSearch
-      if (li) window.open(li, '_blank')
-    }, 600)
-    addToast('🚀 Applied! Application logged. Follow-up set for Day 3 & 5.', 'success')
+    addToast('🚀 Applied! Package copied, application logged. Follow-up set for Day 3 & 5.', 'success')
   }
 
   if (!selectedJob) {

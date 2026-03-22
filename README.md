@@ -13,7 +13,7 @@ Most job search tools take the **spray-and-pray** approach — apply to 1,000 jo
 | Approach | Interview Rate | Source |
 |---|---|---|
 | Mass apply bots (AIHawk, LazyApply) | ~1-3% | Reddit surveys, Business Insider |
-| HireOS: 3 quality, targeted applications/day | **15-25%** contact rate | Cold email + follow-up research data |
+| Personalised direct outreach (HireOS approach) | **15-25%** contact rate | Cold email + follow-up industry research |
 
 HireOS is different:
 - **Ghost Detector** — flags stale, salary-less, and board-only postings before you waste time
@@ -21,12 +21,12 @@ HireOS is different:
 - **Anti-AI Content** — your cover letters and DMs don't sound like ChatGPT
 - **Follow-Up Engine** — Day 3 DM, Day 5 email, Day 7 archive
 - **Company Intel** — surfaces *why* a company is hiring (funding, growth signals)
-- **Privacy-first** — everything runs in your browser. No accounts. No data sent anywhere.
+- **Privacy-first** — your profile stays in your browser. API calls go directly to Google/RapidAPI — no intermediary server, no accounts.
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/AkshayPall/hireos-agent.git
+git clone https://github.com/YOUR-USERNAME/hireos-agent.git
 cd hireos-agent
 npm install
 npm run dev

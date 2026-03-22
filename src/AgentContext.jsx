@@ -46,11 +46,12 @@ export function AgentProvider({ children }) {
         setTracker(updated)
         localStorage.setItem('hireos_tracker', JSON.stringify(updated))
 
-        // Streak logic
+        // Streak logic — reset if missed a day
         const today = new Date().toDateString()
         const lastDay = localStorage.getItem('hireos_last_day')
         if (lastDay !== today) {
-            const newStreak = streak + 1
+            const yesterday = new Date(Date.now() - 86400000).toDateString()
+            const newStreak = (lastDay === yesterday) ? streak + 1 : 1
             setStreak(newStreak)
             localStorage.setItem('hireos_streak', String(newStreak))
             localStorage.setItem('hireos_last_day', today)

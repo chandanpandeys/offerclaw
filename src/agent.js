@@ -35,9 +35,9 @@ export const DEMO_JOBS = [
     id: 'd1', title: 'Frontend Engineer', company: 'Razorpay',
     location: 'Bangalore', salary: '₹18-28L', postedHoursAgo: 3,
     source: 'company_site', url: 'https://razorpay.com/jobs',
-    contactName: 'Ankit Sharma', contactRole: 'Engineering Manager',
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=Ankit+Sharma+Razorpay',
-    emailGuess: 'ankit.sharma@razorpay.com',
+    contactName: null, contactRole: null,
+    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=engineering+manager+Razorpay',
+    emailGuess: null,
     companySignals: ['Series F funded', 'Engineering blog active', 'Hired 12 engineers last month'],
     description: "Build high-performance web apps using React, TypeScript, and Node.js for Razorpay's payment products.",
     skills: ['React', 'TypeScript', 'Node.js', 'Performance'],
@@ -46,9 +46,9 @@ export const DEMO_JOBS = [
     id: 'd2', title: 'React Developer', company: 'Zerodha',
     location: 'Bangalore', salary: '₹15-22L', postedHoursAgo: 6,
     source: 'company_site', url: 'https://zerodha.com/careers',
-    contactName: 'Priya Mehta', contactRole: 'CTO',
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=Priya+Mehta+Zerodha',
-    emailGuess: 'priya.mehta@zerodha.com',
+    contactName: null, contactRole: null,
+    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=engineering+lead+Zerodha',
+    emailGuess: null,
     companySignals: ['Profitable, no layoffs', 'Tech blog very active'],
     description: "Work on Zerodha's trading platform UI for millions of investors.",
     skills: ['React', 'Redux', 'WebSockets', 'Financial UX'],
@@ -57,9 +57,9 @@ export const DEMO_JOBS = [
     id: 'd3', title: 'Software Engineer — UI Platform', company: 'Cred',
     location: 'Bangalore (Remote-first)', salary: '₹20-35L', postedHoursAgo: 2,
     source: 'linkedin', url: 'https://cred.club/careers',
-    contactName: 'Sahil Arora', contactRole: 'Head of Engineering',
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=Sahil+Arora+Cred',
-    emailGuess: 'sahil.arora@cred.club',
+    contactName: null, contactRole: null,
+    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=head+of+engineering+Cred',
+    emailGuess: null,
     companySignals: ['$140M Series E', 'Design system rebrand announced'],
     description: 'Build the design system and core SDK used by all Cred product teams.',
     skills: ['React', 'Design Systems', 'Micro-frontends', 'Performance'],
@@ -68,9 +68,9 @@ export const DEMO_JOBS = [
     id: 'd4', title: 'Frontend Engineer', company: 'Groww',
     location: 'Bangalore', salary: '₹14-20L', postedHoursAgo: 18,
     source: 'linkedin', url: 'https://groww.in/careers',
-    contactName: 'Tanya Singh', contactRole: 'Engineering Manager',
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=Tanya+Singh+Groww',
-    emailGuess: 'tanya.singh@groww.in',
+    contactName: null, contactRole: null,
+    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=engineering+manager+Groww',
+    emailGuess: null,
     companySignals: ['IPO filed 2025', 'Expanding SIP product line'],
     description: "Build investment products for Groww's 10M+ users.",
     skills: ['React', 'JavaScript', 'CSS', 'Analytics'],
@@ -79,9 +79,9 @@ export const DEMO_JOBS = [
     id: 'd5', title: 'Full-Stack Developer', company: 'Porter',
     location: 'Bangalore', salary: '₹12-18L', postedHoursAgo: 9,
     source: 'naukri', url: 'https://porter.in/careers',
-    contactName: 'Rahul Jain', contactRole: 'VP Engineering',
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=Rahul+Jain+Porter',
-    emailGuess: 'rahul.jain@porter.in',
+    contactName: null, contactRole: null,
+    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=VP+engineering+Porter',
+    emailGuess: null,
     companySignals: ['Series C active', 'Expanding to 5 new cities'],
     description: "Join Porter's logistics tech team building dashboards and driver apps.",
     skills: ['React', 'Node.js', 'MongoDB', 'Maps API'],
@@ -233,7 +233,10 @@ export function skillGhostDetector(job) {
   } else if (job.postedHoursAgo <= 168) {
     score -= 20
     warnings.push('⚠ Posted over 24h ago — apply today')
-  } else if (job.postedHoursAgo > 720) {
+  } else if (job.postedHoursAgo <= 720) {
+    score -= 35
+    warnings.push('⚠ Over 7 days old — likely stale, verify before applying')
+  } else {
     score -= 50
     warnings.push('✗ Over 30 days old — very likely ghost job')
   }
@@ -395,6 +398,7 @@ export function skillFollowUp(trackerItem, profile, dayNumber) {
     type: 'archive', label: 'Archive (7 days, no response)',
     content: `Archiving ${role} @ ${co} — 7 days without response. Focus on next targets.`,
   }
+  return { type: 'none', label: 'No action', content: '' }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -488,10 +492,11 @@ export async function runAgent(input, profile, keys, tracker, callbacks) {
     return
   }
 
-  // ── Find jobs ───────────────────────────────────────────────
-  if (lower.includes('find') || lower.includes('job') || lower.includes('search') ||
-      lower.includes('scout') || lower.includes('look') || lower.includes('match') ||
-      lower.includes('role') || lower.includes('position')) {
+  // ── Find jobs (stricter matching) ──────────────────────────
+  const jobIntents = ['find me', 'find job', 'search job', 'scout', 'look for job', 'match me', 'show me role', 'show me job', 'get me job', 'new role', 'new position', 'open position']
+  if (jobIntents.some(i => lower.includes(i)) ||
+      (lower.startsWith('find') && (lower.includes('job') || lower.includes('role'))) ||
+      lower === 'find' || lower === 'search' || lower === 'scout') {
     onMessage({ type: 'agent', text: `Scouting ${profile.currentRole} roles${profile.location ? ` in ${profile.location}` : ''}...` })
 
     try {
@@ -535,8 +540,8 @@ export async function runAgent(input, profile, keys, tracker, callbacks) {
     onDone?.(); return
   }
 
-  // ── Follow-up ───────────────────────────────────────────────
-  if (lower.includes('follow')) {
+  // ── Follow-up (stricter — avoid matching "I follow this company") ──
+  if (lower.startsWith('follow') || lower.includes('follow up') || lower.includes('followup') || lower.includes('follow-up')) {
     const digest = skillDailyDigest(tracker, profile)
     if (digest.pending.length === 0) {
       onMessage({ type: 'agent', text: 'No follow-ups due today. Keep applying — consistency wins.' })
