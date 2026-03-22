@@ -11,10 +11,10 @@ export function AgentProvider({ children }) {
     const [appPackage, setAppPackage] = useState(null)     // AI-generated package
     const [agentStatus, setAgentStatus] = useState('idle') // idle | thinking | live
     const [tracker, setTracker] = useState(           // Application tracker
-        () => JSON.parse(localStorage.getItem('hireos_tracker') || '[]')
+        () => JSON.parse(localStorage.getItem('offerclaw_tracker') || '[]')
     )
     const [streak, setStreak] = useState(
-        () => parseInt(localStorage.getItem('hireos_streak') || '0')
+        () => parseInt(localStorage.getItem('offerclaw_streak') || '0')
     )
     const [view, setView] = useState('chat') // chat | tracker | settings
     const [toasts, setToasts] = useState([])
@@ -44,17 +44,17 @@ export function AgentProvider({ children }) {
         }
         const updated = [entry, ...tracker]
         setTracker(updated)
-        localStorage.setItem('hireos_tracker', JSON.stringify(updated))
+        localStorage.setItem('offerclaw_tracker', JSON.stringify(updated))
 
         // Streak logic — reset if missed a day
         const today = new Date().toDateString()
-        const lastDay = localStorage.getItem('hireos_last_day')
+        const lastDay = localStorage.getItem('offerclaw_last_day')
         if (lastDay !== today) {
             const yesterday = new Date(Date.now() - 86400000).toDateString()
             const newStreak = (lastDay === yesterday) ? streak + 1 : 1
             setStreak(newStreak)
-            localStorage.setItem('hireos_streak', String(newStreak))
-            localStorage.setItem('hireos_last_day', today)
+            localStorage.setItem('offerclaw_streak', String(newStreak))
+            localStorage.setItem('offerclaw_last_day', today)
         }
     }, [tracker, streak])
 

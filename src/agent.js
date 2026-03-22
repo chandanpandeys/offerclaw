@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// HireOS Agent — Production Agent Skills
+// OfferClaw — Production Agent Skills
 // Real job data via JSearch API + Gemini for content generation
 // Research basis documented in research_intelligence.md
 // ═══════════════════════════════════════════════════════════════
@@ -458,11 +458,11 @@ export function exportTrackerCSV(tracker) {
     t.url || '',
   ])
   const csv = [headers, ...rows].map(r => r.map(c => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n')
-  downloadFile(csv, 'hireos-applications.csv', 'text/csv')
+  downloadFile(csv, 'offerclaw-applications.csv', 'text/csv')
 }
 
 export function exportTrackerJSON(tracker) {
-  downloadFile(JSON.stringify(tracker, null, 2), 'hireos-data.json', 'application/json')
+  downloadFile(JSON.stringify(tracker, null, 2), 'offerclaw-data.json', 'application/json')
 }
 
 function downloadFile(content, filename, mimeType) {
@@ -574,7 +574,7 @@ export async function runAgent(input, profile, keys, tracker, callbacks) {
   if (lower.includes('help') || lower === '?' || lower.includes('command')) {
     onMessage({
       type: 'agent',
-      text: `HireOS Agent — commands:\n\n  find me jobs       — Scout fresh matched roles\n  prepare [1-5]      — Generate application package\n  daily digest       — Today's sprint & follow-ups\n  pipeline           — Application tracker\n  follow up          — Check follow-ups due\n  export             — Download applications as CSV\n  settings           — Profile, resume, API keys`,
+      text: `OfferClaw — commands:\n\n  find me jobs       — Scout fresh matched roles\n  prepare [1-5]      — Generate application package\n  daily digest       — Today's sprint & follow-ups\n  pipeline           — Application tracker\n  follow up          — Check follow-ups due\n  export             — Download applications as CSV\n  settings           — Profile, resume, API keys`,
     })
     onDone?.(); return
   }

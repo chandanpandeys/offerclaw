@@ -1,4 +1,4 @@
-# Contributing to HireOS Agent
+# Contributing to OfferClaw
 
 Thank you for your interest in making job search better for everyone! Here's how to contribute.
 

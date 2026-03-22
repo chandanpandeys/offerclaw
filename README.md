@@ -1,4 +1,4 @@
-# HireOS Agent
+# OfferClaw
 
 **Quality-first AI job search agent.** Find real jobs, detect ghost postings, contact humans directly, and follow up at the right time — all from your browser.
 
@@ -6,16 +6,16 @@
 
 ![Terminal-inspired dark UI](https://img.shields.io/badge/design-terminal--inspired-1a1a1a?style=flat-square) ![React](https://img.shields.io/badge/react-19-61dafb?style=flat-square) ![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
-## Why HireOS?
+## Why OfferClaw?
 
 Most job search tools take the **spray-and-pray** approach — apply to 1,000 jobs and hope for the best. The data says that doesn't work:
 
 | Approach | Interview Rate | Source |
 |---|---|---|
 | Mass apply bots (AIHawk, LazyApply) | ~1-3% | Reddit surveys, Business Insider |
-| Personalised direct outreach (HireOS approach) | **15-25%** contact rate | Cold email + follow-up industry research |
+| Personalised direct outreach (OfferClaw approach) | **15-25%** contact rate | Cold email + follow-up industry research |
 
-HireOS is different:
+OfferClaw is different:
 - **Ghost Detector** — flags stale, salary-less, and board-only postings before you waste time
 - **Human Finder** — identifies the hiring manager and generates direct outreach
 - **Anti-AI Content** — your cover letters and DMs don't sound like ChatGPT
@@ -36,7 +36,7 @@ Open [http://localhost:5173](http://localhost:5173). Fill in the 30-second onboa
 
 ## API Keys (Optional, BYOK)
 
-HireOS works out of the box with demo data. For the full experience, add your own free API keys:
+OfferClaw works out of the box with demo data. For the full experience, add your own free API keys:
 
 | Key | What it does | Free tier | Where to get it |
 |---|---|---|---|

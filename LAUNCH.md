@@ -1,4 +1,4 @@
-# HireOS Agent — Launch Posts
+# OfferClaw — Launch Posts
 
 Ready-to-use drafts for launching on HN, Reddit, Product Hunt, and Twitter/X.
 
@@ -6,7 +6,7 @@ Ready-to-use drafts for launching on HN, Reddit, Product Hunt, and Twitter/X.
 
 ## 1. Hacker News — Show HN
 
-**Title:** `Show HN: HireOS Agent – open-source AI job search that detects ghost jobs and contacts humans`
+**Title:** `Show HN: OfferClaw – open-source AI job search that detects ghost jobs and contacts the human directly`
 
 **Body:**
 
@@ -16,7 +16,7 @@ I built an open-source job search agent that takes a different approach from the
 
 **The problem:** 1 in 3 job postings are fake (ResumeBuilder 2025). 70-80% of jobs are never publicly posted. Meanwhile, AIHawk/LazyApply spam recruiters with AI-generated content — and 74% of recruiters can detect it in 20 seconds.
 
-**What HireOS does differently:**
+**What OfferClaw does differently:**
 
 - **Ghost Detector** — scores every listing for legitimacy (posting age, salary transparency, source quality)
 - **Human Finder** — identifies the hiring manager + generates email patterns, not just "Easy Apply"
@@ -26,8 +26,6 @@ I built an open-source job search agent that takes a different approach from the
 
 **Tech:** React 19 + Vite. No backend. All data stays in your browser. Optional BYOK: JSearch API for real listings, Gemini for AI personalization.
 
-**Stack decision:** Pure frontend — no server, no auth, no data collection. Fork and deploy in 5 minutes.
-
 GitHub: [link]
 
 Would love feedback on the ghost detection algorithm and the anti-AI prompting strategy.
@@ -36,7 +34,7 @@ Would love feedback on the ghost detection algorithm and the anti-AI prompting s
 
 ## 2. Reddit — r/cscareerquestions
 
-**Title:** `I built an open-source job search tool that detects ghost jobs and contacts the hiring manager directly — here's the research behind it`
+**Title:** `I built an open-source tool called OfferClaw that detects ghost jobs and contacts the hiring manager directly — here's the research behind it`
 
 **Body:**
 
@@ -48,7 +46,7 @@ Been lurking here long enough to know the pain. Applied to 200+ jobs, got ghoste
 - **Day 3 follow-up** significantly increases your response rate
 - **Applying within 24h** of posting = best conversion
 
-I built HireOS Agent based on these findings. It's open source, runs in your browser, and does this:
+I built OfferClaw based on these findings. It's open source, runs in your browser, and does this:
 
 1. **Finds jobs** from real APIs (LinkedIn, Indeed, Glassdoor via JSearch)
 2. **Checks if they're ghost jobs** before you waste time
@@ -62,13 +60,11 @@ No account needed. No data leaves your browser. Free.
 
 GitHub: [link]
 
-If you want to contribute — the biggest need right now is more job API integrations and interview prep.
-
 ---
 
 ## 3. Reddit — r/webdev / r/sideproject
 
-**Title:** `Open-sourced my job search agent — React 19, no backend, research-driven features [Show off Saturday]`
+**Title:** `Open-sourced OfferClaw — AI job search agent. React 19, no backend, research-driven [Show off Saturday]`
 
 **Body:**
 
@@ -83,33 +79,24 @@ Built this over the past few weeks. It's a job search agent that runs entirely i
 
 **Features:**
 - Ghost job detection (research says 1 in 3 postings are fake)
-- Hiring manager identification with email pattern guessing
+- Hiring manager identification with email pattern generation
 - Anti-AI cover letter generation (bans generic ChatGPT phrases)
 - Day 3/5/7 follow-up engine
 - CSV/JSON export
 - Daily sprint system (3 apps/day target)
 
-**What I learned building it:**
-- localStorage-only architecture is surprisingly powerful for privacy-first tools
-- The anti-AI-detection prompting (explicitly banning generic phrases) produces dramatically better content
-- Ghost detection is basically: freshness + salary transparency + source quality
-
-**Design decision:** Terminal-inspired dark UI on purpose. The "chatbot with a smiley face" look makes people distrust AI tools. This needed to feel like a power tool, not a toy.
-
 GitHub: [link]
-
-Happy to answer questions about the architecture or the research.
 
 ---
 
 ## 4. Product Hunt
 
-**Tagline:** `Quality-first AI job search agent — because 1 in 3 job postings are fake`
+**Tagline:** `Don't apply. Get an offer. OfferClaw validates every posting and finds the human to contact.`
 
 **Description:**
-HireOS Agent is an open-source AI tool that finds you real jobs, detects ghost postings, identifies the hiring manager, and generates content that doesn't sound AI-generated.
+OfferClaw is an open-source AI tool that finds real jobs, detects ghost postings, identifies the hiring manager, and generates content that doesn't sound AI-generated.
 
-Unlike mass-apply bots, HireOS focuses on 3 quality applications per day — the approach research shows actually gets interviews.
+Unlike mass-apply bots, OfferClaw focuses on 3 quality applications per day — the approach research shows actually gets interviews.
 
 **Key features:**
 🔍 Ghost Detector — flags fake/stale postings before you apply
@@ -132,16 +119,16 @@ Unlike mass-apply bots, HireOS focuses on 3 quality applications per day — the
 
 70% of jobs are never publicly posted.
 
-I built a free, open-source tool based on these findings. Thread 🧵
+I built OfferClaw — a free, open-source tool based on these findings. Thread 🧵
 
 **Tweet 2:**
-Most job search tools take the "spray and pray" approach.
+Most job search tools spray and pray.
 
 Apply to 1,000 jobs. Hope for the best.
 
-Result: ~1-3% interview rate. And you might get your LinkedIn account banned.
+Result: ~1-3% interview rate.
 
-HireOS takes the opposite approach: 3 quality applications per day.
+OfferClaw takes the opposite approach: 3 quality applications per day.
 
 **Tweet 3:**
 Every listing runs through a Ghost Detector:
@@ -149,12 +136,12 @@ Every listing runs through a Ghost Detector:
 ✓ How old is the posting? (<24h = best)
 ✓ Is salary listed? (real intent signal)
 ✓ Is it from a company career page? (less competition)
-✓ Are there hiring signals? (funding, blog activity)
+✓ Are there hiring signals? (funding, growth)
 
 **Tweet 4:**
-Instead of clicking "Easy Apply" into the void, HireOS finds the actual hiring manager.
+Instead of clicking "Easy Apply" into the void, OfferClaw finds the actual hiring manager.
 
-→ LinkedIn profile
+→ LinkedIn profile search
 → Email pattern guesses
 → A 2-sentence DM that doesn't sound like ChatGPT wrote it
 
@@ -163,19 +150,19 @@ Research: direct contact = 15-25% response rate vs 1-3% for mass apply.
 **Tweet 5:**
 Follow-up is where most people drop the ball.
 
-HireOS tracks your applications and prompts:
+OfferClaw tracks your applications and prompts:
 • Day 3 → LinkedIn follow-up DM
 • Day 5 → Email follow-up
 • Day 7 → Archive and move on
 
 **Tweet 6:**
-It's 100% free, open source, and runs in your browser.
+100% free, open source, runs in your browser.
 
 No account. No data sent to any server. Bring your own API keys (free tiers available).
 
 GitHub: [link]
 
-Star it if it helps. Contributions welcome — especially job API integrations and interview prep.
+Star it if it helps. Contributions welcome.
 
 ---
 

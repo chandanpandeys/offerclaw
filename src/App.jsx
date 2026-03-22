@@ -12,7 +12,7 @@ function Topbar() {
     <header className="app-topbar">
       <div className="app-logo">
         <div className="app-logo-mark">H</div>
-        HireOS Agent
+        OfferClaw
       </div>
       <div className="topbar-divider" />
       <div className="topbar-status">
@@ -20,7 +20,7 @@ function Topbar() {
         {agentStatus === 'thinking' ? 'thinking...' : agentStatus === 'running' ? 'running' : 'ready'}
       </div>
       <div className="topbar-divider" />
-      <span className="text-muted text-xs text-mono">v1.0.0-alpha · quality-first job search</span>
+      <span className="text-muted text-xs text-mono">v1.0.0 · quality-first job search</span>
       <div className="topbar-right">
         {streak > 0 && <div className="streak-badge">🔥 {streak}-day streak</div>}
       </div>
@@ -239,7 +239,7 @@ function ChatMessages({ onPrepare }) {
         <div style={{ padding: '20px 0' }}>
           <div className="msg">
             <span className="msg-agent" style={{ color: 'var(--text-2)', fontSize: 12 }}>
-              {'— HireOS Agent v1.0 — quality-first job search —'}<br />
+              {'— OfferClaw v1.0 — quality-first job search —'}<br />
               <br />
               {'Commands:'}<br />
               {'  > find me jobs'}<br />
@@ -471,7 +471,7 @@ function TrackerView() {
   const updateItem = (id, patch) => {
     const updated = tracker.map(t => t.id === id ? { ...t, ...patch } : t)
     setTracker(updated)
-    localStorage.setItem('hireos_tracker', JSON.stringify(updated))
+    localStorage.setItem('offerclaw_tracker', JSON.stringify(updated))
   }
 
   const generateFollowUp = (item, day) => {
@@ -561,7 +561,7 @@ function TrackerView() {
               onClick={() => {
                 if (confirm('Clear ALL application data? This cannot be undone.')) {
                   setTracker([])
-                  localStorage.removeItem('hireos_tracker')
+                  localStorage.removeItem('offerclaw_tracker')
                   addToast('All data cleared.', 'info')
                 }
               }}>
@@ -671,8 +671,8 @@ function SettingsView() {
     location: profile?.location || '',
     achievement: profile?.achievement || '',
     resume: profile?.resume || '',
-    geminiKey: localStorage.getItem('hireos_gemini_key') || '',
-    jsearchKey: localStorage.getItem('hireos_jsearch_key') || '',
+    geminiKey: localStorage.getItem('offerclaw_gemini_key') || '',
+    jsearchKey: localStorage.getItem('offerclaw_jsearch_key') || '',
   })
   const fileRef = useRef()
 
@@ -690,11 +690,11 @@ function SettingsView() {
   const save = () => {
     const { geminiKey, jsearchKey, ...profileData } = form
     setProfile(profileData)
-    localStorage.setItem('hireos_profile', JSON.stringify(profileData))
-    if (geminiKey) localStorage.setItem('hireos_gemini_key', geminiKey)
-    else localStorage.removeItem('hireos_gemini_key')
-    if (jsearchKey) localStorage.setItem('hireos_jsearch_key', jsearchKey)
-    else localStorage.removeItem('hireos_jsearch_key')
+    localStorage.setItem('offerclaw_profile', JSON.stringify(profileData))
+    if (geminiKey) localStorage.setItem('offerclaw_gemini_key', geminiKey)
+    else localStorage.removeItem('offerclaw_gemini_key')
+    if (jsearchKey) localStorage.setItem('offerclaw_jsearch_key', jsearchKey)
+    else localStorage.removeItem('offerclaw_jsearch_key')
     addToast('Profile & API keys saved!', 'success')
   }
 
@@ -794,7 +794,7 @@ function Onboarding({ onDone }) {
     <div className="modal-overlay">
       <div className="modal">
         <div className="modal-header">
-          <div className="modal-title">Welcome to HireOS Agent</div>
+          <div className="modal-title">Welcome to OfferClaw</div>
           <div className="modal-subtitle">30-second setup. No account needed.</div>
         </div>
         <div className="modal-body">
@@ -843,7 +843,7 @@ function ToastStack() {
 function DailyDigestBanner() {
   const { tracker, profile, addMessage, setView } = useAgent()
   const [dismissed, setDismissed] = useState(() => {
-    return localStorage.getItem('hireos_digest_dismissed') === new Date().toDateString()
+    return localStorage.getItem('offerclaw_digest_dismissed') === new Date().toDateString()
   })
 
   const digest = skillDailyDigest(tracker, profile)
@@ -854,7 +854,7 @@ function DailyDigestBanner() {
   const openDigest = () => {
     addMessage({ type: 'agent', text: digest.message })
     setDismissed(true)
-    localStorage.setItem('hireos_digest_dismissed', new Date().toDateString())
+    localStorage.setItem('offerclaw_digest_dismissed', new Date().toDateString())
     setView('chat')
   }
 
@@ -874,7 +874,7 @@ function DailyDigestBanner() {
         View Digest
       </button>
       <button className="btn btn-link" style={{ fontSize: 11, padding: '3px' }}
-        onClick={() => { setDismissed(true); localStorage.setItem('hireos_digest_dismissed', new Date().toDateString()) }}>
+        onClick={() => { setDismissed(true); localStorage.setItem('offerclaw_digest_dismissed', new Date().toDateString()) }}>
         ✕
       </button>
     </div>
@@ -895,15 +895,15 @@ export default function App() {
 
   // Load saved profile on mount
   useEffect(() => {
-    const saved = localStorage.getItem('hireos_profile')
+    const saved = localStorage.getItem('offerclaw_profile')
     if (saved) {
       try { setProfile(JSON.parse(saved)) } catch { }
     }
   }, [])
 
   const getKeys = () => ({
-    gemini: localStorage.getItem('hireos_gemini_key') || null,
-    jsearch: localStorage.getItem('hireos_jsearch_key') || null,
+    gemini: localStorage.getItem('offerclaw_gemini_key') || null,
+    jsearch: localStorage.getItem('offerclaw_jsearch_key') || null,
   })
 
   const handleSubmit = useCallback(async (input) => {
@@ -964,7 +964,7 @@ export default function App() {
 
   const finishOnboarding = (data) => {
     setProfile(data)
-    localStorage.setItem('hireos_profile', JSON.stringify(data))
+    localStorage.setItem('offerclaw_profile', JSON.stringify(data))
     addMessage({
       type: 'agent',
       text: `Welcome, ${data.name}! Ready to find you a ${data.currentRole} role.\n\nTry:\n  > find me jobs\n  > daily digest`,
