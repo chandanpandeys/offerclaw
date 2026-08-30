@@ -33,6 +33,14 @@ scrapling install
 
 `pip install "scrapling[fetchers]"` is required for the fetcher classes. `scrapling install` installs the browser/runtime dependencies needed by browser-backed modes.
 
+## Verify the extractor
+
+The fixture test exercises the structured-data normalization without making a network request:
+
+```bash
+python -m unittest test_extract.py
+```
+
 ## Scrape one job page
 
 Start with the cheapest path:
