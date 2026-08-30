@@ -1,586 +1,497 @@
-// ═══════════════════════════════════════════════════════════════
-// OfferClaw — Production Agent Skills
-// Real job data via JSearch API + Gemini for content generation
-// Research basis documented in research_intelligence.md
-// ═══════════════════════════════════════════════════════════════
+// OfferClaw agent core — secure-provider edition.
+// Browser code talks only to same-origin /api routes. Provider secrets stay server-side.
 
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
-const JSEARCH_BASE = 'https://jsearch.p.rapidapi.com'
+const DAY_MS = 86_400_000
 
-// ── Utility ──────────────────────────────────────────────────
-const delay = (ms) => new Promise(r => setTimeout(r, ms))
-
-async function callGemini(apiKey, prompt, systemPrompt = '') {
-  if (!apiKey) throw new Error('NO_KEY')
-  const res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.65, maxOutputTokens: 2048 },
-    }),
-  })
-  if (res.status === 429) throw new Error('RATE_LIMIT')
-  if (!res.ok) throw new Error(`API_ERROR:${res.status}`)
-  const data = await res.json()
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-}
-
-// ═══════════════════════════════════════════════════════════════
-// DEMO DATA — Used when no JSearch key is provided
-// ═══════════════════════════════════════════════════════════════
 export const DEMO_JOBS = [
   {
-    id: 'd1', title: 'Frontend Engineer', company: 'Razorpay',
-    location: 'Bangalore', salary: '₹18-28L', postedHoursAgo: 3,
-    source: 'company_site', url: 'https://razorpay.com/jobs',
-    contactName: null, contactRole: null,
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=engineering+manager+Razorpay',
-    emailGuess: null,
-    companySignals: ['Series F funded', 'Engineering blog active', 'Hired 12 engineers last month'],
-    description: "Build high-performance web apps using React, TypeScript, and Node.js for Razorpay's payment products.",
-    skills: ['React', 'TypeScript', 'Node.js', 'Performance'],
+    id: 'demo-1',
+    title: 'Frontend Engineer',
+    company: 'Northstar Labs (demo)',
+    location: 'Remote',
+    salary: '₹18L–₹26L',
+    postedHoursAgo: 5,
+    source: 'company_site',
+    url: null,
+    description: 'Build accessible React product surfaces, improve performance, and collaborate closely with product and design.',
+    skills: ['React', 'TypeScript', 'Accessibility', 'Performance'],
+    companySignals: ['Demo listing — replace with live data when the jobs API is configured'],
+    dataSource: 'demo',
   },
   {
-    id: 'd2', title: 'React Developer', company: 'Zerodha',
-    location: 'Bangalore', salary: '₹15-22L', postedHoursAgo: 6,
-    source: 'company_site', url: 'https://zerodha.com/careers',
-    contactName: null, contactRole: null,
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=engineering+lead+Zerodha',
-    emailGuess: null,
-    companySignals: ['Profitable, no layoffs', 'Tech blog very active'],
-    description: "Work on Zerodha's trading platform UI for millions of investors.",
-    skills: ['React', 'Redux', 'WebSockets', 'Financial UX'],
+    id: 'demo-2',
+    title: 'Full-Stack Product Engineer',
+    company: 'OrbitPay (demo)',
+    location: 'Bengaluru / Hybrid',
+    salary: '₹16L–₹24L',
+    postedHoursAgo: 14,
+    source: 'company_site',
+    url: null,
+    description: 'Own customer-facing features across React, Node.js, APIs, SQL, observability, and experimentation.',
+    skills: ['React', 'Node.js', 'SQL', 'APIs'],
+    companySignals: ['Demo listing — no application will be sent'],
+    dataSource: 'demo',
   },
   {
-    id: 'd3', title: 'Software Engineer — UI Platform', company: 'Cred',
-    location: 'Bangalore (Remote-first)', salary: '₹20-35L', postedHoursAgo: 2,
-    source: 'linkedin', url: 'https://cred.club/careers',
-    contactName: null, contactRole: null,
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=head+of+engineering+Cred',
-    emailGuess: null,
-    companySignals: ['$140M Series E', 'Design system rebrand announced'],
-    description: 'Build the design system and core SDK used by all Cred product teams.',
-    skills: ['React', 'Design Systems', 'Micro-frontends', 'Performance'],
-  },
-  {
-    id: 'd4', title: 'Frontend Engineer', company: 'Groww',
-    location: 'Bangalore', salary: '₹14-20L', postedHoursAgo: 18,
-    source: 'linkedin', url: 'https://groww.in/careers',
-    contactName: null, contactRole: null,
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=engineering+manager+Groww',
-    emailGuess: null,
-    companySignals: ['IPO filed 2025', 'Expanding SIP product line'],
-    description: "Build investment products for Groww's 10M+ users.",
-    skills: ['React', 'JavaScript', 'CSS', 'Analytics'],
-  },
-  {
-    id: 'd5', title: 'Full-Stack Developer', company: 'Porter',
-    location: 'Bangalore', salary: '₹12-18L', postedHoursAgo: 9,
-    source: 'naukri', url: 'https://porter.in/careers',
-    contactName: null, contactRole: null,
-    linkedinSearch: 'https://linkedin.com/search/results/people/?keywords=VP+engineering+Porter',
-    emailGuess: null,
-    companySignals: ['Series C active', 'Expanding to 5 new cities'],
-    description: "Join Porter's logistics tech team building dashboards and driver apps.",
-    skills: ['React', 'Node.js', 'MongoDB', 'Maps API'],
+    id: 'demo-3',
+    title: 'AI Product Engineer',
+    company: 'SignalWorks (demo)',
+    location: 'India / Remote',
+    salary: null,
+    postedHoursAgo: 28,
+    source: 'linkedin',
+    url: null,
+    description: 'Prototype AI-assisted workflows, build evaluation loops, integrate model APIs, and ship reliable user-facing tools.',
+    skills: ['JavaScript', 'AI APIs', 'Evaluation', 'Product Engineering'],
+    companySignals: ['Demo listing — useful for exploring OfferClaw without credentials'],
+    dataSource: 'demo',
   },
 ]
 
-// ═══════════════════════════════════════════════════════════════
-// JSEARCH API CLIENT — Real job data
-// ═══════════════════════════════════════════════════════════════
-async function fetchJSearchJobs(query, location, jsearchKey) {
-  if (!jsearchKey) throw new Error('NO_KEY')
-  const params = new URLSearchParams({
-    query: `${query} in ${location}`,
-    page: '1',
-    num_pages: '1',
-    date_posted: 'today', // Fresh jobs only — research says <24h = best response
-  })
-  const res = await fetch(`${JSEARCH_BASE}/search?${params}`, {
-    headers: {
-      'x-rapidapi-host': 'jsearch.p.rapidapi.com',
-      'x-rapidapi-key': jsearchKey,
-    },
-  })
-  if (res.status === 429) throw new Error('RATE_LIMIT')
-  if (res.status === 403) throw new Error('INVALID_KEY')
-  if (!res.ok) throw new Error(`API_ERROR:${res.status}`)
-  const data = await res.json()
-  return (data.data || []).slice(0, 8)
+const APPLICATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    resumeDelta: { type: 'array', items: { type: 'string' } },
+    coverLetter: { type: 'string' },
+    dm: { type: 'string' },
+    emailSubject: { type: 'string' },
+    matchNarrative: { type: 'string' },
+    gaps: { type: 'array', items: { type: 'string' } },
+    proofChecks: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['resumeDelta', 'coverLetter', 'dm', 'emailSubject', 'matchNarrative', 'gaps', 'proofChecks'],
 }
 
-function normaliseJSearchJob(raw, index) {
-  const hoursAgo = raw.job_posted_at_datetime_utc
-    ? Math.max(1, Math.floor((Date.now() - new Date(raw.job_posted_at_datetime_utc)) / 3600000))
-    : 12
+function cleanText(value, max = 12_000) {
+  return String(value || '').replace(/\u0000/g, '').slice(0, max)
+}
 
-  const salary = raw.job_min_salary && raw.job_max_salary
-    ? `${raw.job_salary_currency || '$'}${Math.round(raw.job_min_salary / 1000)}K-${Math.round(raw.job_max_salary / 1000)}K`
-    : null
+async function readJsonResponse(response) {
+  const type = response.headers.get('content-type') || ''
+  if (!type.includes('application/json')) throw new Error('BACKEND_UNAVAILABLE')
+  return response.json()
+}
 
-  // Determine source
-  let source = 'linkedin'
-  const applyUrl = raw.job_apply_link || ''
-  if (applyUrl.includes('linkedin.com')) source = 'linkedin'
-  else if (applyUrl.includes('indeed.com') || applyUrl.includes('glassdoor.com')) source = 'naukri'
-  else source = 'company_site'
+async function callAI(prompt, systemPrompt = '', responseSchema = null) {
+  const response = await fetch('/api/ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, systemPrompt, responseSchema }),
+  })
 
-  // Extract skills from description (basic keyword matching)
-  const desc = (raw.job_description || '').toLowerCase()
-  const skillMap = ['React', 'TypeScript', 'JavaScript', 'Node.js', 'Python', 'Java', 'Go', 'AWS', 'Docker', 'Kubernetes', 'SQL', 'MongoDB', 'GraphQL', 'Redux', 'Vue', 'Angular', 'CSS', 'HTML']
-  const skills = skillMap.filter(s => desc.includes(s.toLowerCase())).slice(0, 4)
-  if (skills.length === 0) skills.push('See description')
-
-  return {
-    id: `j${index}-${Date.now()}`,
-    title: raw.job_title || 'Role',
-    company: raw.employer_name || 'Company',
-    location: raw.job_city
-      ? `${raw.job_city}${raw.job_state ? ', ' + raw.job_state : ''}`
-      : raw.job_is_remote ? 'Remote' : 'Location not specified',
-    salary,
-    postedHoursAgo: hoursAgo,
-    source,
-    url: raw.job_apply_link || raw.job_google_link || '#',
-    contactName: null, // JSearch doesn't provide this — Human Finder generates guesses
-    contactRole: null,
-    linkedinSearch: `https://linkedin.com/search/results/people/?keywords=hiring+manager+${encodeURIComponent(raw.employer_name || '')}`,
-    emailGuess: null,
-    companySignals: [],
-    description: (raw.job_description || '').slice(0, 500),
-    skills,
-    employerLogo: raw.employer_logo || null,
+  const data = await readJsonResponse(response)
+  if (!response.ok) {
+    const code = data?.error || `HTTP_${response.status}`
+    throw new Error(code)
   }
-}
 
-// ═══════════════════════════════════════════════════════════════
-// SKILL: Job Scout — Quality filter, not quantity
-// ═══════════════════════════════════════════════════════════════
-export async function skillJobScout(profile, jsearchKey) {
-  // Try real API first, fall back to demo
-  let rawJobs
-
-  if (jsearchKey) {
-    try {
-      const query = profile?.currentRole || profile?.skills?.split(',')[0]?.trim() || 'software engineer'
-      const location = profile?.location || 'India'
-      const apiResults = await fetchJSearchJobs(query, location, jsearchKey)
-      rawJobs = apiResults.map((r, i) => normaliseJSearchJob(r, i))
-    } catch (err) {
-      if (err.message === 'RATE_LIMIT') {
-        throw new Error('JSearch free tier limit reached (500/month). Try again tomorrow or upgrade your API key.')
-      }
-      if (err.message === 'INVALID_KEY') {
-        throw new Error('JSearch API key is invalid. Check your key in Settings.')
-      }
-      // Fallback to demo on other errors
-      rawJobs = null
+  if (responseSchema) {
+    if (data.structured && typeof data.structured === 'object') return data.structured
+    if (data.text) {
+      try { return JSON.parse(data.text) } catch { throw new Error('INVALID_STRUCTURED_OUTPUT') }
     }
   }
 
-  if (!rawJobs || rawJobs.length === 0) {
-    rawJobs = [...DEMO_JOBS]
+  return data.text || ''
+}
+
+async function fetchServerJobs(query, location) {
+  const response = await fetch('/api/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, location, freshness: '3days' }),
+  })
+  const data = await readJsonResponse(response)
+  if (!response.ok) throw new Error(data?.error || `HTTP_${response.status}`)
+  return Array.isArray(data.data) ? data.data : []
+}
+
+function detectSource(url = '') {
+  const lower = url.toLowerCase()
+  if (lower.includes('linkedin.com')) return 'linkedin'
+  if (lower.includes('indeed.') || lower.includes('glassdoor.') || lower.includes('naukri.')) return 'naukri'
+  return url ? 'company_site' : 'naukri'
+}
+
+function salaryLabel(raw) {
+  if (!raw.job_min_salary || !raw.job_max_salary) return null
+  const currency = raw.job_salary_currency || ''
+  const period = raw.job_salary_period ? `/${String(raw.job_salary_period).toLowerCase()}` : ''
+  const min = Math.round(Number(raw.job_min_salary)).toLocaleString()
+  const max = Math.round(Number(raw.job_max_salary)).toLocaleString()
+  return `${currency} ${min}–${max}${period}`.trim()
+}
+
+function extractSkills(description = '') {
+  const catalog = [
+    'React', 'TypeScript', 'JavaScript', 'Node.js', 'Python', 'Java', 'Go', 'Rust',
+    'AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'SQL', 'PostgreSQL', 'MongoDB',
+    'GraphQL', 'Redux', 'Vue', 'Angular', 'CSS', 'HTML', 'Next.js', 'FastAPI',
+    'LLM', 'RAG', 'Agents', 'Machine Learning', 'TensorFlow', 'PyTorch',
+  ]
+  const lower = description.toLowerCase()
+  return catalog.filter(skill => lower.includes(skill.toLowerCase())).slice(0, 6)
+}
+
+function normaliseJob(raw, index) {
+  const postedAt = raw.job_posted_at_datetime_utc ? new Date(raw.job_posted_at_datetime_utc).getTime() : null
+  const postedHoursAgo = Number.isFinite(postedAt)
+    ? Math.max(1, Math.floor((Date.now() - postedAt) / 3_600_000))
+    : 72
+  const url = raw.job_apply_link || raw.job_google_link || null
+  const description = cleanText(raw.job_description, 4_000)
+
+  return {
+    id: raw.job_id || `job-${index}-${postedAt || 'unknown'}`,
+    title: raw.job_title || 'Untitled role',
+    company: raw.employer_name || 'Unknown company',
+    location: raw.job_is_remote
+      ? 'Remote'
+      : [raw.job_city, raw.job_state, raw.job_country].filter(Boolean).join(', ') || 'Location not specified',
+    salary: salaryLabel(raw),
+    postedHoursAgo,
+    source: detectSource(url),
+    url,
+    description,
+    skills: extractSkills(description),
+    employerLogo: raw.employer_logo || null,
+    companySignals: [],
+    dataSource: 'live',
   }
+}
 
-  // Run ghost detection + human finder on each
-  const enriched = rawJobs.map(j => ({
-    ...j,
-    matchScore: computeMatchScore(j, profile),
-    ghostResult: skillGhostDetector(j),
-    humanData: skillHumanFinder(j),
-  }))
-
-  // Sort: source quality × match score
-  const sourceMultiplier = { company_site: 1.1, linkedin: 1.0, naukri: 0.9 }
-  return enriched.sort((a, b) =>
-    (b.matchScore * (sourceMultiplier[b.source] || 1)) -
-    (a.matchScore * (sourceMultiplier[a.source] || 1))
-  )
+function tokenise(text) {
+  return cleanText(text, 4_000)
+    .toLowerCase()
+    .split(/[^a-z0-9+#.]+/)
+    .filter(token => token.length > 1)
 }
 
 function computeMatchScore(job, profile) {
-  if (!profile?.skills) return 70
-  const userSkills = profile.skills.toLowerCase().split(',').map(s => s.trim())
-  const jobText = `${job.title} ${job.description} ${(job.skills || []).join(' ')}`.toLowerCase()
-  let hits = 0
-  for (const skill of userSkills) {
-    if (skill && jobText.includes(skill)) hits++
-  }
-  const base = Math.min(95, 60 + Math.round((hits / Math.max(1, userSkills.length)) * 35))
-  // Freshness bonus
-  if (job.postedHoursAgo <= 6) return Math.min(98, base + 5)
-  if (job.postedHoursAgo <= 24) return base
-  return Math.max(50, base - 5)
+  const userSkills = cleanText(profile?.skills, 1_000)
+    .split(',')
+    .map(skill => skill.trim().toLowerCase())
+    .filter(Boolean)
+  const targetTokens = new Set(tokenise(profile?.currentRole))
+  const jobTokens = new Set(tokenise(`${job.title} ${job.description} ${(job.skills || []).join(' ')}`))
+
+  const skillHits = userSkills.filter(skill => jobTokens.has(skill) || cleanText(job.description).toLowerCase().includes(skill)).length
+  const roleHits = [...targetTokens].filter(token => jobTokens.has(token)).length
+  const skillRatio = userSkills.length ? skillHits / userSkills.length : 0.45
+  const roleRatio = targetTokens.size ? roleHits / targetTokens.size : 0.5
+  const freshness = job.postedHoursAgo <= 24 ? 1 : job.postedHoursAgo <= 72 ? 0.8 : 0.55
+
+  return Math.max(35, Math.min(96, Math.round(45 + skillRatio * 30 + roleRatio * 15 + freshness * 6)))
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SKILL: Ghost Detector — Research-calibrated
-// 1 in 3 postings fake (ResumeBuilder 2025)
-// ═══════════════════════════════════════════════════════════════
 export function skillGhostDetector(job) {
-  let score = 100
+  let score = 70
   const signals = []
   const warnings = []
 
-  if (job.postedHoursAgo <= 6) {
-    signals.push('✓ Posted within 6h — highest freshness')
-  } else if (job.postedHoursAgo <= 24) {
-    score -= 5
-    signals.push('✓ Posted today')
-  } else if (job.postedHoursAgo <= 168) {
-    score -= 20
-    warnings.push('⚠ Posted over 24h ago — apply today')
-  } else if (job.postedHoursAgo <= 720) {
-    score -= 35
-    warnings.push('⚠ Over 7 days old — likely stale, verify before applying')
-  } else {
-    score -= 50
-    warnings.push('✗ Over 30 days old — very likely ghost job')
+  if (job.dataSource === 'demo') {
+    warnings.push('Demo listing — do not treat this as a real vacancy')
+    return { score: 50, signals, warnings, confidence: 'demo' }
   }
 
-  if (!job.salary) {
+  if (job.postedHoursAgo <= 24) {
+    score += 12
+    signals.push('Posted within the last 24 hours')
+  } else if (job.postedHoursAgo <= 72) {
+    score += 5
+    signals.push('Posted within the last 3 days')
+  } else if (job.postedHoursAgo > 168) {
     score -= 15
-    warnings.push('⚠ No salary listed — common ghost signal')
+    warnings.push('Listing is more than a week old; verify it is still active')
+  }
+
+  if (job.salary) {
+    score += 5
+    signals.push('Compensation information is present')
   } else {
-    signals.push('✓ Salary listed — real intent signal')
+    warnings.push('No compensation information in the feed')
   }
 
   if (job.source === 'company_site') {
-    signals.push('✓ From company career page — highest signal')
-  } else if (job.source === 'naukri') {
-    score -= 10
-    warnings.push('⚠ From job board — more ghost risk')
+    score += 8
+    signals.push('Apply link appears to be an employer-controlled destination')
+  } else {
+    warnings.push('Job-board source; verify the opening on the employer careers site')
   }
 
-  if (job.companySignals?.length > 0) {
-    signals.push(`✓ ${job.companySignals[0]}`)
+  if (!job.url) {
+    score -= 25
+    warnings.push('No usable application URL')
   }
 
-  return { score: Math.max(0, Math.min(100, score)), signals, warnings }
+  if ((job.description || '').length < 180) {
+    score -= 8
+    warnings.push('Very short job description')
+  } else {
+    signals.push('Detailed role description is available')
+  }
+
+  return {
+    score: Math.max(0, Math.min(100, score)),
+    signals,
+    warnings,
+    confidence: 'heuristic',
+  }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SKILL: Human Finder
-// Referred candidates 4-5x more likely to get hired
-// ═══════════════════════════════════════════════════════════════
 export function skillHumanFinder(job) {
-  if (job.contactName) {
-    const nameParts = job.contactName.toLowerCase().split(' ')
-    const first = nameParts[0] || 'contact'
-    const last = nameParts[nameParts.length - 1] || 'person'
-    const domain = (job.emailGuess || '').split('@')[1] || `${job.company.toLowerCase().replace(/\s+/g, '')}.com`
-    const patterns = [
-      `${first}.${last}@${domain}`,
-      `${first[0]}${last}@${domain}`,
-      `${first}@${domain}`,
-    ]
+  const company = cleanText(job.company, 120).replace(/\s*\(demo\)$/i, '')
+  const roleQuery = `${company} ${job.title} hiring manager recruiter engineering manager`
+  return {
+    name: null,
+    role: 'Likely hiring contact',
+    linkedinUrl: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(roleQuery)}`,
+    emailPatterns: [],
+    bestGuess: null,
+    outreachTip: `Look for the hiring manager, team lead, or recruiter responsible for ${job.title}. Verify identity before sending outreach; OfferClaw does not invent email addresses.`,
+  }
+}
+
+export async function skillJobScout(profile, _legacyKey = null) {
+  const query = cleanText(profile?.currentRole || profile?.skills?.split(',')?.[0] || 'software engineer', 120)
+  const location = cleanText(profile?.location || 'India', 100)
+  let jobs
+
+  try {
+    const raw = await fetchServerJobs(query, location)
+    jobs = raw.map(normaliseJob)
+  } catch {
+    jobs = DEMO_JOBS.map(job => ({ ...job }))
+  }
+
+  return jobs
+    .map(job => ({
+      ...job,
+      matchScore: computeMatchScore(job, profile),
+      ghostResult: skillGhostDetector(job),
+      humanData: skillHumanFinder(job),
+      linkedinSearch: skillHumanFinder(job).linkedinUrl,
+    }))
+    .sort((a, b) => {
+      const sourceBoost = { company_site: 4, linkedin: 1, naukri: 0 }
+      return (b.matchScore + (sourceBoost[b.source] || 0)) - (a.matchScore + (sourceBoost[a.source] || 0))
+    })
+}
+
+function fallbackPackage(job, profile) {
+  const skills = cleanText(profile?.skills, 500).split(',').map(s => s.trim()).filter(Boolean)
+  const strongest = skills.slice(0, 3)
+  const achievement = cleanText(profile?.achievement, 400).trim()
+  const role = cleanText(job.title, 140)
+  const company = cleanText(job.company, 140).replace(/\s*\(demo\)$/i, '')
+
+  const resumeDelta = []
+  if (achievement) resumeDelta.push(`Lead with this verified proof point: ${achievement}`)
+  if (strongest.length) resumeDelta.push(`Make ${strongest.join(', ')} easy to find where they genuinely match the ${role} requirements.`)
+  resumeDelta.push(`Add one truthful project or work example that demonstrates the closest requirement from this role; include a metric only if you can verify it.`)
+
+  return {
+    resumeDelta: resumeDelta.slice(0, 3),
+    coverLetter: `Hi ${company} team — I’m interested in the ${role} opening because the role overlaps with ${strongest.join(', ') || 'the work I am targeting'}. I’d be glad to share a concise example of relevant work and how I approached it. I’ve kept this note intentionally specific rather than repeating my resume, and I’m happy to provide more context if useful.`,
+    dm: `Hi — I’m exploring the ${role} role at ${company}. My background overlaps with ${strongest.slice(0, 2).join(' + ') || 'the core requirements'}. Is there one capability the team is prioritizing most for this hire?`,
+    emailSubject: `${role} — relevant work sample`,
+    matchNarrative: `Your strongest visible overlap is ${strongest.join(', ') || 'not yet specified'}. Validate the role requirements against your actual experience before applying.`,
+    gaps: ['AI generation is unavailable, so review the job description manually for missing must-have requirements.'],
+    proofChecks: ['Do not add metrics, employers, projects, or credentials that are not already true and verifiable.'],
+    mode: 'template',
+  }
+}
+
+export async function skillApplicationComposer(job, profile, _legacyKey = null) {
+  const fallback = fallbackPackage(job, profile)
+  const profilePayload = {
+    name: cleanText(profile?.name, 160),
+    targetRole: cleanText(profile?.currentRole, 200),
+    experience: cleanText(profile?.experience, 100),
+    skills: cleanText(profile?.skills, 1_500),
+    achievement: cleanText(profile?.achievement, 800),
+    resume: cleanText(profile?.resume, 14_000),
+  }
+  const jobPayload = {
+    title: cleanText(job.title, 200),
+    company: cleanText(job.company, 200),
+    location: cleanText(job.location, 160),
+    description: cleanText(job.description, 8_000),
+    skills: job.skills || [],
+  }
+
+  const systemPrompt = `You are OfferClaw, a truth-first career application assistant.\nNever fabricate employers, projects, credentials, years of experience, achievements, metrics, contacts, or tools.\nIf evidence is missing, state the gap instead of inventing proof.\nWrite concise human-sounding professional English. Avoid generic hype, fake enthusiasm, and keyword stuffing.\nThe LinkedIn DM must stay under 300 characters. The email subject must stay under 60 characters.\nResume suggestions must be edits or emphasis recommendations, not fictional accomplishments.`
+
+  const prompt = `Create a targeted application package from only the verified candidate data and the job description below.\n\nCANDIDATE\n${JSON.stringify(profilePayload)}\n\nJOB\n${JSON.stringify(jobPayload)}\n\nReturn: three resume delta suggestions, a short cover letter, a concise LinkedIn DM, an email subject, a one-paragraph match narrative, the most important evidence gaps, and a proof checklist.`
+
+  try {
+    const generated = await callAI(prompt, systemPrompt, APPLICATION_SCHEMA)
     return {
-      name: job.contactName, role: job.contactRole,
-      linkedinUrl: job.linkedinSearch, emailPatterns: patterns,
-      bestGuess: patterns[0], companySignals: job.companySignals || [],
-      outreachTip: getOutreachTip(job),
+      ...fallback,
+      ...generated,
+      resumeDelta: Array.isArray(generated.resumeDelta) ? generated.resumeDelta.slice(0, 3) : fallback.resumeDelta,
+      gaps: Array.isArray(generated.gaps) ? generated.gaps.slice(0, 5) : [],
+      proofChecks: Array.isArray(generated.proofChecks) ? generated.proofChecks.slice(0, 5) : fallback.proofChecks,
+      mode: 'ai',
+    }
+  } catch {
+    return fallback
+  }
+}
+
+export function skillFollowUp(item, profile, day) {
+  const firstName = cleanText(profile?.name, 100).split(' ')[0] || 'there'
+  const company = cleanText(item.company, 120)
+  const role = cleanText(item.jobTitle, 120)
+
+  if (day === 3) {
+    return {
+      label: 'Day 3 · concise check-in',
+      content: `Hi — following up on my ${role} application at ${company}. I’m still interested and can share a focused work sample if that would help with the review. — ${firstName}`,
     }
   }
-  // No contact name — generate LinkedIn search URL
-  const companyClean = (job.company || '').replace(/[^a-zA-Z0-9 ]/g, '')
-  return {
-    name: null, role: 'Hiring Manager',
-    linkedinUrl: `https://linkedin.com/search/results/people/?keywords=hiring+manager+${encodeURIComponent(companyClean)}`,
-    emailPatterns: [], bestGuess: null,
-    companySignals: job.companySignals || [],
-    outreachTip: `Search LinkedIn for hiring manager at ${job.company}. DM directly — 15-25% response rate.`,
-  }
-}
-
-function getOutreachTip(job) {
-  const signals = job.companySignals || []
-  if (signals.some(s => s.toLowerCase().includes('fund')))
-    return `Mention their recent funding — shows you do research.`
-  if (signals.some(s => s.toLowerCase().includes('blog')))
-    return `Reference a recent blog post — instant credibility.`
-  if (job.source === 'company_site')
-    return `You found this on their career page — mention it. Shows genuine interest.`
-  return `Keep the DM to 2 sentences. Ask for 15 mins, not "any opportunities".`
-}
-
-// ═══════════════════════════════════════════════════════════════
-// SKILL: Application Composer — Anti-AI-detection
-// 74% recruiters detect AI in 20s; 57% auto-reject
-// ═══════════════════════════════════════════════════════════════
-export async function skillApplicationComposer(job, profile, geminiKey) {
-  if (geminiKey) {
-    try {
-      const systemPrompt = `You are a brutally honest career coach. Your output sounds like a confident senior engineer — never like an AI. Every sentence is specific and verifiable. BANNED phrases: "I am passionate about", "seeking to leverage", "proven track record", "seasoned professional", "I hope this finds you", "synergy", "go-getter", "team player", "excited to apply". Output ONLY valid JSON, no markdown.`
-
-      const companyContext = job.companySignals?.join(', ') || job.company
-      const prompt = `Generate a job application package.
-
-ROLE: ${job.title} at ${job.company}
-DESCRIPTION: ${job.description?.slice(0, 400)}
-SKILLS: ${(job.skills || []).join(', ')}
-CONTACT: ${job.contactName || 'Hiring Manager'} (${job.contactRole || 'Engineering'})
-COMPANY CONTEXT: ${companyContext}
-
-CANDIDATE:
-Name: ${profile?.name}
-Target Role: ${profile?.currentRole}
-Years: ${profile?.experience || '3'}
-Skills: ${profile?.skills}
-Achievement: ${profile?.achievement || 'shipped features at scale'}
-Resume excerpt: ${profile?.resume ? profile.resume.slice(0, 500) : '(not provided)'}
-
-Return ONLY this JSON:
-{
-  "resumeDelta": [
-    "bullet 1 — quantified, specific to ${(job.skills || ['the role'])[0]}",
-    "bullet 2 — references scale or business impact",
-    "bullet 3 — unique, can't be reused for random jobs"
-  ],
-  "coverLetter": "4 sentences exactly. S1: why this company specifically. S2: one relevant thing you built. S3: one metric. S4: ask for 20 mins.",
-  "dm": "Max 260 chars. No opener pleasantries. Get straight to it. Reference ONE specific thing about ${job.company}.",
-  "emailSubject": "Under 50 chars. Role name + one differentiator."
-}`
-      const raw = await callGemini(geminiKey, prompt, systemPrompt)
-      const m = raw.match(/\{[\s\S]*\}/)
-      if (m) {
-        const parsed = JSON.parse(m[0])
-        if (parsed.resumeDelta && parsed.coverLetter) return parsed
-      }
-    } catch (err) {
-      if (err.message === 'RATE_LIMIT') {
-        throw new Error('Gemini API rate limit reached. Wait a minute and try again.')
-      }
-      // Fall through to demo
+  if (day === 5) {
+    return {
+      label: 'Day 5 · email follow-up',
+      subject: `${role} application — follow-up`,
+      content: `Hi, I wanted to follow up on my application for ${role} at ${company}. If the role is still active, I’m happy to send a short example of the most relevant work rather than another long note. Thanks, ${firstName}`,
     }
   }
-
-  // ── Demo fallback ──────────────────────────────────────────
-  const skill1 = profile?.skills?.split(',')[0]?.trim() || (job.skills || ['the tech stack'])[0]
-  const skill2 = profile?.skills?.split(',')[1]?.trim() || (job.skills || ['', 'architecture'])[1]
-  const name = profile?.name || 'Alex'
-  const companyDetail = job.companySignals?.[0] || `${job.company}'s product`
-
   return {
-    resumeDelta: [
-      `Built ${skill1} component library adopted across 8 teams — cut feature dev time by 35%`,
-      `Improved Lighthouse score from 48 → 94 for core product, reducing bounce rate by 22%`,
-      `Delivered 3 features end-to-end from Figma to production — avg 6-day cycle time`,
-    ],
-    coverLetter: `${job.company} caught my attention because of ${companyDetail} — the kind of problem I've been deep in. I recently led a ${skill1} performance overhaul that cut load time by 40% and increased conversion by 18%. That work maps directly to the ${job.title} role. Would appreciate 20 minutes to walk through specifics.`,
-    dm: `Applied for ${job.title} at ${job.company}. Been focused on ${skill1} at scale — cut load times 40%, improved conversion 18%. Worth a 15-min chat?`,
-    emailSubject: `${job.title} — ${name} (${skill1}, 40% perf lift)`,
+    label: 'Day 7 · refocus',
+    content: `No response yet for ${role} at ${company}. Verify whether the role is still active, send one final useful note only if you have new information, then refocus on fresher opportunities.`,
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SKILL: Follow-Up Agent (Day 3/5/7)
-// ═══════════════════════════════════════════════════════════════
-export function skillFollowUp(trackerItem, profile, dayNumber) {
-  const name = profile?.name || 'Alex'
-  const contact = trackerItem.contactName || 'there'
-  const co = trackerItem.company
-  const role = trackerItem.jobTitle
-  const skill = profile?.skills?.split(',')[0]?.trim() || 'the tech stack'
-
-  if (dayNumber === 3) return {
-    type: 'dm', label: 'Day 3 LinkedIn DM',
-    content: `${contact}, following up on my ${role} application at ${co}. Built a demo of my ${skill} work this week — happy to share if useful. Still very keen.`,
-  }
-  if (dayNumber === 5) return {
-    type: 'email', label: 'Day 5 Email Follow-Up',
-    subject: `Re: ${role} — ${name}`,
-    content: `Hi ${contact},\n\nQuick follow-up on the ${role} role at ${co}.\n\nI've been thinking about the ${skill} challenges at your scale — I've solved similar problems recently and would love to discuss specifics.\n\nAny update on timing? Happy to adjust to your schedule.\n\n— ${name}`,
-  }
-  if (dayNumber === 7) return {
-    type: 'archive', label: 'Archive (7 days, no response)',
-    content: `Archiving ${role} @ ${co} — 7 days without response. Focus on next targets.`,
-  }
-  return { type: 'none', label: 'No action', content: '' }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// SKILL: Daily Digest
-// ═══════════════════════════════════════════════════════════════
 export function skillDailyDigest(tracker, profile) {
   const now = Date.now()
-  const pending = []
-  for (const item of tracker) {
-    if (item.status !== 'applied') continue
-    const age = Math.floor((now - new Date(item.appliedAt)) / 86400000)
-    if (age >= 7) pending.push({ item, action: 'archive', day: 7 })
-    else if (age >= 5 && !item.followUpDay5) pending.push({ item, action: 'followup5', day: 5 })
-    else if (age >= 3 && !item.followUpDay3) pending.push({ item, action: 'followup3', day: 3 })
-  }
+  const today = new Date(now).toDateString()
+  const todayApplied = tracker.filter(item => new Date(item.appliedAt).toDateString() === today).length
+  const pending = tracker
+    .filter(item => item.status === 'applied')
+    .map(item => ({ item, days: Math.floor((now - new Date(item.appliedAt).getTime()) / DAY_MS) }))
+    .filter(({ item, days }) => (days >= 3 && !item.followUpDay3) || (days >= 5 && !item.followUpDay5))
 
-  const todayApplied = tracker.filter(t =>
-    new Date(t.appliedAt).toDateString() === new Date().toDateString()
-  ).length
+  const targetForDay = 3
+  const name = cleanText(profile?.name, 100).split(' ')[0] || 'there'
+  const lines = [
+    `Morning, ${name}.`,
+    `${todayApplied}/${targetForDay} focused applications logged today.`,
+    pending.length ? `${pending.length} follow-up${pending.length === 1 ? '' : 's'} due.` : 'No follow-ups due right now.',
+    'Prioritize recent employer-site roles and verify every listing before investing time.',
+  ]
 
-  const name = profile?.name?.split(' ')[0] || 'there'
-  const lines = [`Good morning, ${name}. Today's sprint:\n`]
-
-  if (pending.length > 0) {
-    lines.push(`⚡ Follow-ups due (${pending.length}):`)
-    pending.forEach(p => {
-      const label = p.action === 'followup3' ? 'Day 3 DM' : p.action === 'followup5' ? 'Day 5 email' : 'Archive'
-      lines.push(`  → ${p.item.company} — ${label}`)
-    })
-    lines.push('')
-  }
-
-  if (todayApplied < 3) {
-    lines.push(`🎯 Find ${3 - todayApplied} job${3 - todayApplied > 1 ? 's' : ''} today (${todayApplied}/3)`)
-    lines.push(`  Type "find me jobs" to start.`)
-    lines.push('')
-    lines.push(`💡 Jobs posted <24h have the highest response rates.`)
-  } else {
-    lines.push(`✅ Daily target hit (${todayApplied}/3). Strong work.`)
-  }
-
-  return { pending, todayApplied, targetForDay: 3, message: lines.join('\n') }
+  return { pending, todayApplied, targetForDay, message: lines.join('\n') }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// DATA EXPORT
-// ═══════════════════════════════════════════════════════════════
-export function exportTrackerCSV(tracker) {
-  const headers = ['Company', 'Role', 'Applied Date', 'Status', 'Contact', 'Day 3 Sent', 'Day 5 Sent', 'URL']
-  const rows = tracker.map(t => [
-    t.company, t.jobTitle,
-    new Date(t.appliedAt).toLocaleDateString(),
-    t.status,
-    t.contactName || '',
-    t.followUpDay3 ? 'Yes' : 'No',
-    t.followUpDay5 ? 'Yes' : 'No',
-    t.url || '',
-  ])
-  const csv = [headers, ...rows].map(r => r.map(c => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n')
-  downloadFile(csv, 'offerclaw-applications.csv', 'text/csv')
-}
-
-export function exportTrackerJSON(tracker) {
-  downloadFile(JSON.stringify(tracker, null, 2), 'offerclaw-data.json', 'application/json')
-}
-
-function downloadFile(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType })
+function downloadText(filename, content, type) {
+  const blob = new Blob([content], { type })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
   URL.revokeObjectURL(url)
 }
 
-// ═══════════════════════════════════════════════════════════════
-// AGENT CORE — Orchestrator
-// ═══════════════════════════════════════════════════════════════
-export async function runAgent(input, profile, keys, tracker, callbacks) {
-  const { onMessage, onJobs, onDone, onSetView, onError } = callbacks
-  const lower = input.toLowerCase().trim()
+export function exportTrackerCSV(tracker) {
+  const fields = ['jobTitle', 'company', 'appliedAt', 'status', 'followUpDay3', 'followUpDay5', 'url']
+  const escape = value => `"${String(value ?? '').replaceAll('"', '""')}"`
+  const rows = [fields.join(','), ...tracker.map(item => fields.map(field => escape(item[field])).join(','))]
+  downloadText('offerclaw-pipeline.csv', rows.join('\n'), 'text/csv;charset=utf-8')
+}
 
-  // ── Validate profile ────────────────────────────────────────
-  if (!profile?.name || !profile?.currentRole) {
-    onMessage({ type: 'agent', text: 'Please complete your profile first. Go to Settings and fill in your name and target role.' })
-    onSetView?.('settings')
-    onDone?.()
-    return
+export function exportTrackerJSON(tracker) {
+  downloadText('offerclaw-pipeline.json', JSON.stringify(tracker, null, 2), 'application/json')
+}
+
+async function runtimeStatus() {
+  try {
+    const response = await fetch('/api/health', { headers: { Accept: 'application/json' } })
+    const data = await readJsonResponse(response)
+    if (!response.ok) throw new Error('health_failed')
+    return data
+  } catch {
+    return { ok: false, ai: { configured: false }, jobs: { configured: false } }
   }
+}
 
-  // ── Find jobs (stricter matching) ──────────────────────────
-  const jobIntents = ['find me', 'find job', 'search job', 'scout', 'look for job', 'match me', 'show me role', 'show me job', 'get me job', 'new role', 'new position', 'open position']
-  if (jobIntents.some(i => lower.includes(i)) ||
-      (lower.startsWith('find') && (lower.includes('job') || lower.includes('role'))) ||
-      lower === 'find' || lower === 'search' || lower === 'scout') {
-    onMessage({ type: 'agent', text: `Scouting ${profile.currentRole} roles${profile.location ? ` in ${profile.location}` : ''}...` })
+export async function runAgent(command, profile, _legacyKeys, tracker, callbacks = {}) {
+  const input = cleanText(command, 500).trim()
+  const lower = input.toLowerCase()
+  const onMessage = callbacks.onMessage || (() => {})
+  const onJobs = callbacks.onJobs || (() => {})
+  const onSetView = callbacks.onSetView || (() => {})
+  const onDone = callbacks.onDone || (() => {})
+  const onError = callbacks.onError || (() => {})
 
-    try {
-      const jobs = await skillJobScout(profile, keys?.jsearch)
-      const isDemo = !keys?.jsearch || jobs[0]?.id?.startsWith('d')
+  try {
+    if (!input || lower === 'help' || lower === '?') {
+      onMessage({ type: 'agent', text: 'Commands:\n  find me jobs\n  analyze 1\n  prepare 1\n  daily digest\n  status\n  export' })
+      return onDone()
+    }
+
+    if (lower === 'status' || lower.includes('runtime')) {
+      const status = await runtimeStatus()
+      const ai = status.ai?.configured ? `AI ready · ${status.ai.model}` : 'AI not configured · template mode'
+      const jobs = status.jobs?.configured ? 'Live jobs ready' : 'Jobs API not configured · demo mode'
+      onMessage({ type: 'agent', text: `${ai}\n${jobs}\nProvider credentials stay server-side.` })
+      return onDone()
+    }
+
+    if (lower.includes('daily digest') || lower === 'digest') {
+      onMessage({ type: 'agent', text: skillDailyDigest(tracker || [], profile).message })
+      return onDone()
+    }
+
+    if (lower === 'export' || lower.includes('export pipeline')) {
+      exportTrackerJSON(tracker || [])
+      onMessage({ type: 'agent', text: 'Pipeline exported as JSON.' })
+      return onDone()
+    }
+
+    const prepareMatch = lower.match(/(?:prepare|compose|apply)\s+(\d+)/)
+    if (prepareMatch) {
+      const index = Number(prepareMatch[1])
+      onMessage({ type: 'agent', text: `Preparing job ${index}. I will only use claims already present in your profile/resume.` })
+      return onDone(index)
+    }
+
+    const analyzeMatch = lower.match(/(?:analyze|analyse|inspect)\s+(\d+)/)
+    if (analyzeMatch && callbacks.currentJobs) {
+      const job = callbacks.currentJobs[Number(analyzeMatch[1]) - 1]
+      if (!job) {
+        onMessage({ type: 'agent', text: 'That job number is not in the current result set.' })
+        return onDone()
+      }
+      const ghost = skillGhostDetector(job)
+      const finder = skillHumanFinder(job)
       onMessage({
         type: 'agent',
-        text: `Found ${jobs.length} matches.${isDemo ? ' (Demo data — add JSearch API key in Settings for real listings)' : ''}\n\nGhost-checked all postings. Human contacts identified.\nPro tip: "🏢 Company Site" listings have less competition — apply there first.`,
+        text: `${job.title} @ ${job.company}\nMatch: ${job.matchScore}% · Listing confidence: ${ghost.score}%\n${ghost.warnings.join('\n') || 'No major listing-quality warnings from the available data.'}\n\nHuman route: ${finder.outreachTip}`,
       })
+      return onDone()
+    }
+
+    if (lower.includes('job') || lower.includes('find') || lower.includes('search')) {
+      onMessage({ type: 'agent', text: `Searching for recent ${profile?.currentRole || 'roles'} near ${profile?.location || 'your preferred location'}...` })
+      const jobs = await skillJobScout(profile)
       onJobs(jobs)
-    } catch (err) {
-      onMessage({ type: 'agent', text: `⚠ ${err.message}\n\nFalling back to demo data...` })
-      const demoJobs = DEMO_JOBS.map(j => ({
-        ...j, matchScore: computeMatchScore(j, profile),
-        ghostResult: skillGhostDetector(j), humanData: skillHumanFinder(j),
-      }))
-      onJobs(demoJobs)
+      const mode = jobs.some(job => job.dataSource === 'live') ? 'live provider data' : 'demo data'
+      onMessage({ type: 'agent', text: `Found ${jobs.length} ranked roles using ${mode}. Use “analyze 1” for listing risk or “prepare 1” for a truth-checked application package.` })
+      return onDone()
     }
-    onDone?.()
-    return
-  }
 
-  // ── Prepare by number ───────────────────────────────────────
-  if (lower.startsWith('prepare') || lower.startsWith('apply') || lower.startsWith('package')) {
-    const n = parseInt(input.match(/\d+/)?.[0])
-    if (!isNaN(n)) { onDone?.(n); return }
-    onMessage({ type: 'agent', text: 'Which job? e.g. "prepare 1" or click ⚡ Prepare on a card.' })
-    onDone?.(); return
-  }
-
-  // ── Daily digest ────────────────────────────────────────────
-  if (lower.includes('digest') || lower.includes('today') || lower.includes('morning') ||
-      lower.includes('daily') || lower.includes('sprint')) {
-    onMessage({ type: 'agent', text: skillDailyDigest(tracker, profile).message })
-    onDone?.(); return
-  }
-
-  // ── Pipeline / tracker ──────────────────────────────────────
-  if (lower.includes('track') || lower.includes('pipeline') || lower.includes('applied') || lower.includes('status')) {
-    onSetView?.('tracker')
-    onDone?.(); return
-  }
-
-  // ── Follow-up (stricter — avoid matching "I follow this company") ──
-  if (lower.startsWith('follow') || lower.includes('follow up') || lower.includes('followup') || lower.includes('follow-up')) {
-    const digest = skillDailyDigest(tracker, profile)
-    if (digest.pending.length === 0) {
-      onMessage({ type: 'agent', text: 'No follow-ups due today. Keep applying — consistency wins.' })
-    } else {
-      onMessage({ type: 'agent', text: `${digest.pending.length} follow-up(s) due. Opening Pipeline...` })
-      onSetView?.('tracker')
+    if (lower.includes('pipeline') || lower.includes('tracker')) {
+      onSetView('tracker')
+      return onDone()
     }
-    onDone?.(); return
-  }
 
-  // ── Settings ────────────────────────────────────────────────
-  if (lower.includes('setting') || lower.includes('profile') || lower.includes('key') ||
-      lower.includes('resume') || lower.includes('api')) {
-    onSetView?.('settings')
-    onDone?.(); return
+    onMessage({ type: 'agent', text: 'I did not recognize that command. Try “find me jobs”, “analyze 1”, “prepare 1”, “daily digest”, “status”, or “help”.' })
+    return onDone()
+  } catch (error) {
+    onError(error.message || 'Agent error')
+    onMessage({ type: 'agent', text: `I hit a runtime problem (${error.message || 'unknown'}). Demo/template mode is still available.` })
+    return onDone()
   }
-
-  // ── Export ──────────────────────────────────────────────────
-  if (lower.includes('export') || lower.includes('download') || lower.includes('csv')) {
-    if (tracker.length === 0) {
-      onMessage({ type: 'agent', text: 'No applications to export yet. Apply to some jobs first!' })
-    } else {
-      exportTrackerCSV(tracker)
-      onMessage({ type: 'agent', text: `Exported ${tracker.length} applications as CSV.` })
-    }
-    onDone?.(); return
-  }
-
-  // ── Help ────────────────────────────────────────────────────
-  if (lower.includes('help') || lower === '?' || lower.includes('command')) {
-    onMessage({
-      type: 'agent',
-      text: `OfferClaw — commands:\n\n  find me jobs       — Scout fresh matched roles\n  prepare [1-5]      — Generate application package\n  daily digest       — Today's sprint & follow-ups\n  pipeline           — Application tracker\n  follow up          — Check follow-ups due\n  export             — Download applications as CSV\n  settings           — Profile, resume, API keys`,
-    })
-    onDone?.(); return
-  }
-
-  // ── Default ─────────────────────────────────────────────────
-  await delay(200)
-  onMessage({ type: 'agent', text: `Try: "find me jobs", "prepare 1", "daily digest", or "help"` })
-  onDone?.()
 }
