@@ -1,4 +1,4 @@
-const NUMBER_TOKEN = /\b\d+(?:\.\d+)?(?:%|x|\+|k|m|l|cr|years?|months?)?\b/gi
+const NUMBER_TOKEN = /\b\d+(?:\.\d+)?(?:%|x|\+|k|m|l|cr|years?|months?)?/gi
 
 function text(value) {
   return String(value || '').trim()
