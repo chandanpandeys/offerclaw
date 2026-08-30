@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { AgentContext } from './agentContext'
+import { evaluateApplicationPackage, snapshotJobEvidence } from './evals'
 
 function readJson(key, fallback) {
   try {
@@ -55,6 +56,9 @@ export function AgentProvider({ children }) {
   }, [])
 
   const saveApplication = useCallback((job) => {
+    const packageEvaluation = appPackage
+      ? evaluateApplicationPackage(appPackage, profileState)
+      : null
     const entry = {
       id: makeId(),
       jobTitle: job.title,
@@ -65,6 +69,18 @@ export function AgentProvider({ children }) {
       followUpDay5: null,
       url: job.url || null,
       dataSource: job.dataSource || 'unknown',
+      evidence: snapshotJobEvidence(job),
+      packageSnapshot: appPackage ? {
+        mode: appPackage.mode || 'unknown',
+        resumeDelta: Array.isArray(appPackage.resumeDelta) ? appPackage.resumeDelta.slice(0, 3) : [],
+        coverLetter: appPackage.coverLetter || '',
+        dm: appPackage.dm || '',
+        emailSubject: appPackage.emailSubject || '',
+        matchNarrative: appPackage.matchNarrative || '',
+        gaps: Array.isArray(appPackage.gaps) ? appPackage.gaps.slice(0, 10) : [],
+        proofChecks: Array.isArray(appPackage.proofChecks) ? appPackage.proofChecks.slice(0, 10) : [],
+      } : null,
+      packageEvaluation,
     }
     setTracker(previous => [entry, ...previous])
 
@@ -79,7 +95,7 @@ export function AgentProvider({ children }) {
       })
       localStorage.setItem('offerclaw_last_day', today)
     }
-  }, [setTracker])
+  }, [appPackage, profileState, setTracker])
 
   const clearPackage = useCallback(() => {
     setAppPackage(null)
