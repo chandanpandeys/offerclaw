@@ -9,6 +9,8 @@ import {
   skillFollowUp,
 } from './agent'
 
+const SESSION_NOW = Date.now()
+
 const SOURCE_LABELS = {
   company_site: { label: '🏢 Employer site', cls: 'badge-green' },
   linkedin: { label: '🔗 LinkedIn', cls: 'badge-amber' },
@@ -565,13 +567,6 @@ export default function App() {
     tracker, view, setView, addToast,
   } = useAgent()
   const [runtime, setRuntime] = useState(null)
-  const [now, setNow] = useState(0)
-
-  useEffect(() => {
-    setNow(Date.now())
-    const interval = globalThis.setInterval(() => setNow(Date.now()), 60_000)
-    return () => globalThis.clearInterval(interval)
-  }, [])
 
   useEffect(() => {
     let active = true
@@ -624,12 +619,12 @@ export default function App() {
       {!profile && <Onboarding onDone={finishOnboarding} />}
       <div className="app-layout">
         <Topbar runtime={runtime} />
-        <Sidebar now={now} />
+        <Sidebar now={SESSION_NOW} />
         <main className="app-chat">
           {view === 'chat' && <RuntimeNotice runtime={runtime} />}
           {view === 'chat' && <DailyDigestBanner />}
           {view === 'chat' && <><ChatMessages onPrepare={prepare} /><ChatInput onSubmit={submit} /></>}
-          {view === 'tracker' && <TrackerView now={now} />}
+          {view === 'tracker' && <TrackerView now={SESSION_NOW} />}
           {view === 'settings' && <SettingsView runtime={runtime} />}
         </main>
         {view === 'chat' && <AppPanel />}
