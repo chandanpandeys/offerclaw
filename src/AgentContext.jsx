@@ -1,86 +1,117 @@
-// Global agent store — shared state across all components
-import { useState, createContext, useContext, useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import { AgentContext } from './agentContext'
 
-const AgentContext = createContext(null)
-
-export function AgentProvider({ children }) {
-    const [profile, setProfile] = useState(null)          // User profile
-    const [messages, setMessages] = useState([])           // Chat messages
-    const [jobs, setJobs] = useState([])                   // Current job batch
-    const [selectedJob, setSelectedJob] = useState(null)   // Job being prepared
-    const [appPackage, setAppPackage] = useState(null)     // AI-generated package
-    const [agentStatus, setAgentStatus] = useState('idle') // idle | thinking | live
-    const [tracker, setTracker] = useState(           // Application tracker
-        () => JSON.parse(localStorage.getItem('offerclaw_tracker') || '[]')
-    )
-    const [streak, setStreak] = useState(
-        () => parseInt(localStorage.getItem('offerclaw_streak') || '0')
-    )
-    const [view, setView] = useState('chat') // chat | tracker | settings
-    const [toasts, setToasts] = useState([])
-    const messageEndRef = useRef(null)
-
-    const addMessage = useCallback((msg) => {
-        setMessages(prev => [...prev, { id: Date.now() + Math.random(), ...msg }])
-    }, [])
-
-    const addToast = useCallback((text, type = 'info') => {
-        const id = Date.now()
-        setToasts(prev => [...prev, { id, text, type }])
-        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500)
-    }, [])
-
-    const saveApplication = useCallback((job) => {
-        const entry = {
-            id: Date.now(),
-            jobTitle: job.title,
-            company: job.company,
-            appliedAt: new Date().toISOString(),
-            status: 'applied',
-            followUpDay3: null,
-            followUpDay5: null,
-            url: job.url,
-            contactName: job.contactName,
-        }
-        const updated = [entry, ...tracker]
-        setTracker(updated)
-        localStorage.setItem('offerclaw_tracker', JSON.stringify(updated))
-
-        // Streak logic — reset if missed a day
-        const today = new Date().toDateString()
-        const lastDay = localStorage.getItem('offerclaw_last_day')
-        if (lastDay !== today) {
-            const yesterday = new Date(Date.now() - 86400000).toDateString()
-            const newStreak = (lastDay === yesterday) ? streak + 1 : 1
-            setStreak(newStreak)
-            localStorage.setItem('offerclaw_streak', String(newStreak))
-            localStorage.setItem('offerclaw_last_day', today)
-        }
-    }, [tracker, streak])
-
-    const clearPackage = useCallback(() => {
-        setAppPackage(null)
-        setSelectedJob(null)
-    }, [])
-
-    return (
-        <AgentContext.Provider value={{
-            profile, setProfile,
-            messages, addMessage,
-            jobs, setJobs,
-            selectedJob, setSelectedJob,
-            appPackage, setAppPackage,
-            agentStatus, setAgentStatus,
-            tracker, setTracker, saveApplication,
-            streak,
-            view, setView,
-            toasts, addToast,
-            messageEndRef,
-            clearPackage,
-        }}>
-            {children}
-        </AgentContext.Provider>
-    )
+function readJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : fallback
+  } catch {
+    return fallback
+  }
 }
 
-export const useAgent = () => useContext(AgentContext)
+function makeId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+export function AgentProvider({ children }) {
+  const [profileState, setProfileState] = useState(() => readJson('offerclaw_profile', null))
+  const [messages, setMessages] = useState([])
+  const [jobs, setJobs] = useState([])
+  const [selectedJob, setSelectedJob] = useState(null)
+  const [appPackage, setAppPackage] = useState(null)
+  const [agentStatus, setAgentStatus] = useState('idle')
+  const [trackerState, setTrackerState] = useState(() => readJson('offerclaw_tracker', []))
+  const [streak, setStreak] = useState(() => Number(localStorage.getItem('offerclaw_streak') || 0))
+  const [view, setView] = useState('chat')
+  const [toasts, setToasts] = useState([])
+  const messageEndRef = useRef(null)
+
+  const setProfile = useCallback((next) => {
+    setProfileState(next)
+    if (next) localStorage.setItem('offerclaw_profile', JSON.stringify(next))
+    else localStorage.removeItem('offerclaw_profile')
+  }, [])
+
+  const setTracker = useCallback((nextOrUpdater) => {
+    setTrackerState(previous => {
+      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(previous) : nextOrUpdater
+      localStorage.setItem('offerclaw_tracker', JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const addMessage = useCallback((message) => {
+    setMessages(previous => [...previous, { id: makeId(), ...message }])
+  }, [])
+
+  const addToast = useCallback((text, type = 'info') => {
+    const id = makeId()
+    setToasts(previous => [...previous, { id, text, type }])
+    globalThis.setTimeout(() => {
+      setToasts(previous => previous.filter(toast => toast.id !== id))
+    }, 3500)
+  }, [])
+
+  const saveApplication = useCallback((job) => {
+    const entry = {
+      id: makeId(),
+      jobTitle: job.title,
+      company: job.company,
+      appliedAt: new Date().toISOString(),
+      status: 'applied',
+      followUpDay3: null,
+      followUpDay5: null,
+      url: job.url || null,
+      dataSource: job.dataSource || 'unknown',
+    }
+    setTracker(previous => [entry, ...previous])
+
+    const today = new Date().toDateString()
+    const lastDay = localStorage.getItem('offerclaw_last_day')
+    if (lastDay !== today) {
+      const yesterday = new Date(Date.now() - 86_400_000).toDateString()
+      setStreak(previous => {
+        const next = lastDay === yesterday ? previous + 1 : 1
+        localStorage.setItem('offerclaw_streak', String(next))
+        return next
+      })
+      localStorage.setItem('offerclaw_last_day', today)
+    }
+  }, [setTracker])
+
+  const clearPackage = useCallback(() => {
+    setAppPackage(null)
+    setSelectedJob(null)
+  }, [])
+
+  return (
+    <AgentContext.Provider value={{
+      profile: profileState,
+      setProfile,
+      messages,
+      addMessage,
+      jobs,
+      setJobs,
+      selectedJob,
+      setSelectedJob,
+      appPackage,
+      setAppPackage,
+      agentStatus,
+      setAgentStatus,
+      tracker: trackerState,
+      setTracker,
+      saveApplication,
+      streak,
+      view,
+      setView,
+      toasts,
+      addToast,
+      messageEndRef,
+      clearPackage,
+    }}>
+      {children}
+    </AgentContext.Provider>
+  )
+}

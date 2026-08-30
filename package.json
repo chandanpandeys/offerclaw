@@ -1,22 +1,23 @@
 {
   "name": "offerclaw",
   "version": "1.0.0",
-  "description": "Quality-first AI job search agent — ghost detection, human finder, anti-AI content, follow-up engine",
+  "description": "Secure quality-first job search agent with listing triage, truth-checked application drafting, human outreach, and follow-up tracking",
   "type": "module",
   "license": "MIT",
   "keywords": [
     "job-search",
     "ai-agent",
-    "ghost-jobs",
     "career",
     "application-tracker",
     "gemini",
-    "react"
+    "react",
+    "vercel-functions"
   ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test",
     "preview": "vite preview"
   },
   "dependencies": {

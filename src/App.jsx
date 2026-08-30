@@ -1,17 +1,35 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { useAgent } from './AgentContext'
-import { runAgent, skillApplicationComposer, skillFollowUp, skillDailyDigest, exportTrackerCSV, exportTrackerJSON } from './agent'
+import { useEffect, useRef, useState } from 'react'
+import { useAgent } from './agentContext'
+import {
+  exportTrackerCSV,
+  exportTrackerJSON,
+  runAgent,
+  skillApplicationComposer,
+  skillDailyDigest,
+  skillFollowUp,
+} from './agent'
 
-// ════════════════════════════════════════════════════════════
-// TOPBAR
-// ════════════════════════════════════════════════════════════
-function Topbar() {
+const SESSION_NOW = Date.now()
+
+const SOURCE_LABELS = {
+  company_site: { label: '🏢 Employer site', cls: 'badge-green' },
+  linkedin: { label: '🔗 LinkedIn', cls: 'badge-amber' },
+  naukri: { label: '📋 Job board', cls: 'badge-yellow' },
+}
+
+function daysSince(iso, now) {
+  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 86_400_000))
+}
+
+function Topbar({ runtime }) {
   const { agentStatus, streak } = useAgent()
   const dot = agentStatus === 'thinking' ? 'thinking' : agentStatus === 'running' ? 'live' : ''
+  const mode = runtime?.jobs?.configured || runtime?.ai?.configured ? 'connected' : 'demo'
+
   return (
     <header className="app-topbar">
       <div className="app-logo">
-        <div className="app-logo-mark">H</div>
+        <div className="app-logo-mark">OC</div>
         OfferClaw
       </div>
       <div className="topbar-divider" />
@@ -20,7 +38,7 @@ function Topbar() {
         {agentStatus === 'thinking' ? 'thinking...' : agentStatus === 'running' ? 'running' : 'ready'}
       </div>
       <div className="topbar-divider" />
-      <span className="text-muted text-xs text-mono">v1.0.0 · quality-first job search</span>
+      <span className="text-muted text-xs text-mono">v1.1 · secure agent platform · {mode}</span>
       <div className="topbar-right">
         {streak > 0 && <div className="streak-badge">🔥 {streak}-day streak</div>}
       </div>
@@ -28,31 +46,19 @@ function Topbar() {
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// SIDEBAR
-// ════════════════════════════════════════════════════════════
-function Sidebar() {
+function Sidebar({ now }) {
   const { profile, view, setView, tracker, streak } = useAgent()
-
-  const todayApplied = tracker.filter(t =>
-    new Date(t.appliedAt).toDateString() === new Date().toDateString()
-  ).length
-
-  const followUpsDue = tracker.filter(t => {
-    const age = Math.floor((Date.now() - new Date(t.appliedAt)) / 86400000)
-    return t.status === 'applied' && (
-      (age >= 3 && !t.followUpDay3) ||
-      (age >= 5 && !t.followUpDay5)
-    )
+  const today = new Date(now).toDateString()
+  const todayApplied = tracker.filter(item => new Date(item.appliedAt).toDateString() === today).length
+  const followUpsDue = tracker.filter(item => {
+    const age = daysSince(item.appliedAt, now)
+    return item.status === 'applied' && ((age >= 3 && !item.followUpDay3) || (age >= 5 && !item.followUpDay5))
   }).length
-
-  const responseRate = tracker.length > 0
-    ? Math.round((tracker.filter(t => t.status === 'response').length / tracker.length) * 100)
-    : 0
-
+  const responses = tracker.filter(item => item.status === 'response').length
+  const responseRate = tracker.length ? Math.round((responses / tracker.length) * 100) : 0
   const nav = [
     { id: 'chat', icon: '⌥', label: 'Agent Chat' },
-    { id: 'tracker', icon: '◈', label: 'Pipeline', badge: followUpsDue > 0 ? followUpsDue : null },
+    { id: 'tracker', icon: '◈', label: 'Pipeline', badge: followUpsDue || null },
     { id: 'settings', icon: '⚙', label: 'Settings' },
   ]
 
@@ -62,236 +68,183 @@ function Sidebar() {
         <div className="sidebar-label">Profile</div>
         <div className="profile-card">
           <div className="profile-name">{profile?.name || 'Not set'}</div>
-          <div className="profile-role">{profile?.currentRole || 'Set up profile →'}</div>
+          <div className="profile-role">{profile?.currentRole || 'Choose a target role'}</div>
         </div>
       </div>
 
       <nav className="sidebar-nav">
         {nav.map(item => (
-          <div key={item.id}
+          <button
+            key={item.id}
             className={`nav-item ${view === item.id ? 'active' : ''}`}
             onClick={() => setView(item.id)}
+            type="button"
+            style={{ width: '100%', border: 0, textAlign: 'left' }}
           >
             <span className="nav-item-icon">{item.icon}</span>
             {item.label}
-            {item.badge && (
-              <span style={{
-                marginLeft: 'auto', background: 'var(--accent)', color: 'var(--bg-0)',
-                fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
-              }}>{item.badge}</span>
-            )}
-          </div>
+            {item.badge && <span className="badge badge-yellow" style={{ marginLeft: 'auto' }}>{item.badge}</span>}
+          </button>
         ))}
       </nav>
 
       <div className="sidebar-stats">
         <div className="sidebar-label">Today</div>
-        <div className="stat-row">
-          <span className="stat-label">Applied</span>
-          <span className={`stat-val ${todayApplied >= 3 ? 'good' : todayApplied >= 1 ? 'accent' : ''}`}>
-            {todayApplied}/3
-          </span>
-        </div>
-        <div className="stat-row">
-          <span className="stat-label">Follow-ups</span>
-          <span className={`stat-val ${followUpsDue > 0 ? 'warn' : 'good'}`}>
-            {followUpsDue > 0 ? `${followUpsDue} due` : 'clear'}
-          </span>
-        </div>
-        <div className="stat-row">
-          <span className="stat-label">Streak</span>
-          <span className={`stat-val ${streak >= 7 ? 'good' : streak >= 3 ? 'accent' : ''}`}>
-            {streak}d 🔥
-          </span>
-        </div>
-        <div className="stat-row">
-          <span className="stat-label">Response</span>
-          <span className={`stat-val ${responseRate >= 15 ? 'good' : responseRate >= 5 ? 'warn' : ''}`}>
-            {responseRate}%
-          </span>
-        </div>
-        <div className="stat-row">
-          <span className="stat-label">Pipeline</span>
-          <span className="stat-val">{tracker.length}</span>
-        </div>
+        <div className="stat-row"><span className="stat-label">Applied</span><span className="stat-val accent">{todayApplied}/3</span></div>
+        <div className="stat-row"><span className="stat-label">Follow-ups</span><span className={`stat-val ${followUpsDue ? 'warn' : 'good'}`}>{followUpsDue || 'clear'}</span></div>
+        <div className="stat-row"><span className="stat-label">Response</span><span className="stat-val">{responseRate}%</span></div>
+        <div className="stat-row"><span className="stat-label">Streak</span><span className="stat-val">{streak}d</span></div>
+        <div className="stat-row"><span className="stat-label">Pipeline</span><span className="stat-val">{tracker.length}</span></div>
       </div>
     </aside>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// GHOST BAR
-// ════════════════════════════════════════════════════════════
-function GhostBar({ score, warnings }) {
-  const cls = score >= 80 ? 'high' : score >= 60 ? 'med' : 'low'
-  const label = score >= 80 ? 'Legit' : score >= 60 ? 'Caution' : 'Ghost?'
+function RuntimeNotice({ runtime }) {
+  if (!runtime) return null
+  const liveJobs = Boolean(runtime.jobs?.configured)
+  const liveAi = Boolean(runtime.ai?.configured)
+  if (liveJobs && liveAi) return null
+
+  return (
+    <div style={{
+      padding: '8px 14px', borderBottom: '1px solid var(--border)', background: 'var(--bg-1)',
+      fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-2)', display: 'flex', gap: 10,
+    }}>
+      <span style={{ color: 'var(--yellow)' }}>◌</span>
+      <span style={{ flex: 1 }}>
+        {liveJobs ? 'Live jobs connected.' : 'Jobs are in demo mode.'} {liveAi ? `AI connected (${runtime.ai.model}).` : 'AI uses truth-safe templates.'}
+        {' '}Self-hosters can enable providers with server-side environment variables.
+      </span>
+    </div>
+  )
+}
+
+function GhostBar({ result }) {
+  const score = result?.score ?? 0
+  const warnings = result?.warnings || []
   const [open, setOpen] = useState(false)
+  const cls = score >= 80 ? 'high' : score >= 60 ? 'med' : 'low'
+
   return (
     <div style={{ marginBottom: 8 }}>
-      <div className="job-ghost-bar" onClick={() => warnings?.length && setOpen(o => !o)}
-        style={{ cursor: warnings?.length ? 'pointer' : 'default' }}>
-        <span className="ghost-label">Ghost: {label}</span>
-        <div className="ghost-track">
-          <div className={`ghost-fill ${cls}`} style={{ width: `${score}%` }} />
-        </div>
+      <button
+        type="button"
+        className="job-ghost-bar"
+        onClick={() => setOpen(previous => !previous)}
+        style={{ cursor: warnings.length ? 'pointer' : 'default', width: '100%', border: 0, background: 'transparent' }}
+      >
+        <span className="ghost-label">Listing confidence</span>
+        <div className="ghost-track"><div className={`ghost-fill ${cls}`} style={{ width: `${score}%` }} /></div>
         <span className="ghost-pct">{score}%</span>
-        {warnings?.length > 0 && <span style={{ fontSize: 9, color: 'var(--yellow)', marginLeft: 4 }}>▾</span>}
-      </div>
-      {open && warnings?.length > 0 && (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--yellow)', padding: '4px 0 2px', lineHeight: 1.8 }}>
-          {warnings.map((w, i) => <div key={i}>{w}</div>)}
+      </button>
+      {open && warnings.length > 0 && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--yellow)', lineHeight: 1.7, paddingTop: 4 }}>
+          {warnings.map(warning => <div key={warning}>⚠ {warning}</div>)}
         </div>
       )}
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// SOURCE BADGE
-// ════════════════════════════════════════════════════════════
-const SOURCE_LABELS = {
-  company_site: { label: '🏢 Company Site', cls: 'badge-green', tip: 'Less competition — apply here first' },
-  linkedin: { label: '🔗 LinkedIn', cls: 'badge-amber', tip: 'High volume of applicants — personalise further' },
-  naukri: { label: '📋 Job Board', cls: 'badge-yellow', tip: 'Higher ghost-job risk — verify before applying' },
-}
-
-function SourceBadge({ source }) {
-  const s = SOURCE_LABELS[source] || SOURCE_LABELS.naukri
-  return (
-    <span className={`badge ${s.cls}`} title={s.tip} style={{ fontSize: 9 }}>
-      {s.label}
-    </span>
-  )
-}
-
-// ════════════════════════════════════════════════════════════
-// JOB CARD
-// ════════════════════════════════════════════════════════════
 function JobCard({ job, index, onPrepare }) {
-  const { selectedJob, setSelectedJob } = useAgent()
-  const isSelected = selectedJob?.id === job.id
-  const ghostScore = job.ghostResult?.score ?? job.ghostScore
-  const ghostWarnings = job.ghostResult?.warnings
+  const { selectedJob, setSelectedJob, addMessage } = useAgent()
+  const source = SOURCE_LABELS[job.source] || SOURCE_LABELS.naukri
+  const demo = job.dataSource === 'demo'
+
+  const analyze = () => {
+    setSelectedJob(job)
+    const warnings = job.ghostResult?.warnings || []
+    addMessage({
+      type: 'agent',
+      text: `${job.title} @ ${job.company}\nMatch: ${job.matchScore}% · listing confidence: ${job.ghostResult?.score || 0}%\n${warnings.join('\n') || 'No major listing-quality warnings from the available feed.'}\n\n${job.humanData?.outreachTip || ''}`,
+    })
+  }
 
   return (
-    <div
-      className={`job-card ${isSelected ? 'selected' : ''}`}
-      onClick={() => setSelectedJob(job)}
-    >
+    <div className={`job-card ${selectedJob?.id === job.id ? 'selected' : ''}`} onClick={() => setSelectedJob(job)}>
       <div className="job-card-header">
         <div className="job-card-title">{index}. {job.title} @ {job.company}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <SourceBadge source={job.source} />
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span className={`badge ${source.cls}`} style={{ fontSize: 9 }}>{source.label}</span>
+          <span className={`badge ${demo ? 'badge-yellow' : 'badge-green'}`} style={{ fontSize: 9 }}>{demo ? 'DEMO' : 'LIVE'}</span>
           <div className="job-score">{job.matchScore}%</div>
         </div>
       </div>
       <div className="job-card-meta">
-        <span>⏱ {job.postedHoursAgo}h ago</span>
+        <span>⏱ {job.postedHoursAgo}h</span>
         {job.salary && <span>💰 {job.salary}</span>}
         <span>📍 {job.location}</span>
       </div>
-
-      <GhostBar score={ghostScore} warnings={ghostWarnings} />
-
-      {/* Company Intelligence — key differentiator */}
-      {job.companySignals?.length > 0 && (
-        <div className="job-signals">
-          {job.companySignals.slice(0, 2).map((s, i) => (
-            <div key={i} className="job-signal">📡 {s}</div>
-          ))}
+      <GhostBar result={job.ghostResult} />
+      {job.skills?.length > 0 && (
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
+          {job.skills.slice(0, 6).map(skill => <span key={skill} className="badge">{skill}</span>)}
         </div>
       )}
-
-      {job.contactName && (
-        <div className="job-contact">
-          <span className="contact-icon">👤</span>
-          <span>{job.contactName}</span>
-          <span className="text-muted">·</span>
-          <span className="text-muted">{job.contactRole}</span>
-        </div>
-      )}
-      <div className="job-actions" onClick={e => e.stopPropagation()}>
-        <button className="btn btn-primary" id={`prepare-job-${index}`} onClick={() => onPrepare(job)}>
-          ⚡ Prepare
-        </button>
-        <a href={job.url} target="_blank" rel="noreferrer" className="btn btn-ghost">↗ Apply</a>
-        <a href={job.linkedinSearch || job.humanData?.linkedinUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">
-          LinkedIn
-        </a>
+      <div className="job-actions" onClick={event => event.stopPropagation()}>
+        <button className="btn btn-primary" onClick={() => onPrepare(job)} type="button">⚡ Prepare</button>
+        <button className="btn btn-ghost" onClick={analyze} type="button">Analyze</button>
+        {job.url ? <a href={job.url} target="_blank" rel="noreferrer" className="btn btn-ghost">↗ Apply</a> : <button className="btn btn-ghost" disabled type="button">Demo only</button>}
+        <a href={job.humanData?.linkedinUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">Find human</a>
       </div>
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// CHAT MESSAGES
-// ════════════════════════════════════════════════════════════
 function ChatMessages({ onPrepare }) {
-  const { messages, jobs, agentStatus, messageEndRef } = useAgent()
+  const { messages, jobs, agentStatus } = useAgent()
+  const endRef = useRef(null)
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, jobs])
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, jobs, agentStatus])
 
   return (
     <div className="chat-messages">
       {messages.length === 0 && (
-        <div style={{ padding: '20px 0' }}>
-          <div className="msg">
-            <span className="msg-agent" style={{ color: 'var(--text-2)', fontSize: 12 }}>
-              {'— OfferClaw v1.0 — quality-first job search —'}<br />
-              <br />
-              {'Commands:'}<br />
-              {'  > find me jobs'}<br />
-              {'  > daily digest'}<br />
-              {'  > prepare 1'}<br />
-              {'  > help'}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {messages.map(msg => (
-        <div key={msg.id} className="msg">
-          {msg.type === 'user'
-            ? <span className="msg-prompt">{msg.text}</span>
-            : <span className="msg-agent">{msg.text}</span>
-          }
-        </div>
-      ))}
-
-      {jobs.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8 }}>
-          {jobs.map((job, i) => (
-            <JobCard key={job.id} job={job} index={i + 1} onPrepare={onPrepare} />
-          ))}
-        </div>
-      )}
-
-      {agentStatus === 'thinking' && (
         <div className="msg">
-          <span className="msg-agent" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="spinner" /> processing...
+          <span className="msg-agent" style={{ color: 'var(--text-2)', fontSize: 12 }}>
+            {'— OfferClaw v1.1 — secure, quality-first job search —'}<br /><br />
+            {'Try:'}<br />
+            {'  > find me jobs'}<br />
+            {'  > analyze 1'}<br />
+            {'  > prepare 1'}<br />
+            {'  > daily digest'}<br />
+            {'  > status'}
           </span>
         </div>
       )}
-      <div ref={messageEndRef} />
+      {messages.map(message => (
+        <div key={message.id} className="msg">
+          {message.type === 'user'
+            ? <span className="msg-prompt">{message.text}</span>
+            : <span className="msg-agent">{message.text}</span>}
+        </div>
+      ))}
+      {jobs.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8 }}>
+          {jobs.map((job, index) => <JobCard key={job.id} job={job} index={index + 1} onPrepare={onPrepare} />)}
+        </div>
+      )}
+      {(agentStatus === 'thinking' || agentStatus === 'running') && (
+        <div className="msg"><span className="msg-agent" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span className="spinner" /> processing...</span></div>
+      )}
+      <div ref={endRef} />
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// CHAT INPUT
-// ════════════════════════════════════════════════════════════
 function ChatInput({ onSubmit }) {
-  const [val, setVal] = useState('')
+  const [value, setValue] = useState('')
   const { agentStatus } = useAgent()
+  const busy = agentStatus !== 'idle'
 
   const submit = () => {
-    const t = val.trim()
-    if (!t || agentStatus === 'thinking') return
-    onSubmit(t)
-    setVal('')
+    const command = value.trim()
+    if (!command || busy) return
+    onSubmit(command)
+    setValue('')
   }
 
   return (
@@ -300,66 +253,70 @@ function ChatInput({ onSubmit }) {
       <textarea
         id="chat-input"
         className="chat-input"
-        value={val}
-        onChange={e => setVal(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-        placeholder="find me jobs | prepare 1 | daily digest | help"
         rows={1}
-        disabled={agentStatus === 'thinking'}
+        value={value}
+        disabled={busy}
+        placeholder="find me jobs | analyze 1 | prepare 1 | status"
+        onChange={event => setValue(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            submit()
+          }
+        }}
       />
-      <button id="chat-run-btn" className="btn btn-primary chat-send-btn" onClick={submit} disabled={agentStatus === 'thinking'}>
-        Run
-      </button>
+      <button className="btn btn-primary chat-send-btn" onClick={submit} disabled={busy} type="button">Run</button>
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// APPLICATION PACKAGE PANEL
-// ════════════════════════════════════════════════════════════
+function PackageSection({ title, value, onCopy }) {
+  if (!value || (Array.isArray(value) && value.length === 0)) return null
+  const text = Array.isArray(value) ? value.join('\n') : value
+
+  return (
+    <div className="pkg-section">
+      <div className="pkg-section-header">
+        <span className="pkg-section-title">▸ {title}</span>
+        <button className="btn btn-link" onClick={() => onCopy(text)} type="button">⎘ copy</button>
+      </div>
+      <div className="pkg-section-body">
+        {Array.isArray(value)
+          ? <div className="pkg-bullets">{value.map(item => <div className="pkg-bullet" key={item}>{item}</div>)}</div>
+          : <div className="pkg-text">{value}</div>}
+      </div>
+    </div>
+  )
+}
+
 function AppPanel() {
   const { selectedJob, appPackage, clearPackage, saveApplication, addToast } = useAgent()
-  const [copied, setCopied] = useState(null)
 
-  const copy = (text, key) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key)
-      addToast('Copied to clipboard!', 'info')
-      setTimeout(() => setCopied(null), 1500)
-    })
+  const copy = async (text) => {
+    await navigator.clipboard.writeText(text)
+    addToast('Copied to clipboard', 'info')
   }
 
-  const approveAll = () => {
-    if (!appPackage || !selectedJob) return
-    const text = [
-      '══ RESUME DELTA ══',
-      ...(appPackage.resumeDelta || []).map(b => `• ${b}`),
-      '',
-      '══ COVER LETTER ══',
-      appPackage.coverLetter,
-      '',
-      '══ LINKEDIN DM ══',
-      appPackage.dm,
-      '',
-      '══ EMAIL SUBJECT ══',
-      appPackage.emailSubject,
+  const approve = async () => {
+    if (!selectedJob || !appPackage) return
+    const bundle = [
+      'RESUME DELTA', ...(appPackage.resumeDelta || []), '',
+      'COVER LETTER', appPackage.coverLetter || '', '',
+      'LINKEDIN DM', appPackage.dm || '', '',
+      'EMAIL SUBJECT', appPackage.emailSubject || '', '',
+      'PROOF CHECKS', ...(appPackage.proofChecks || []),
     ].join('\n')
-
-    navigator.clipboard.writeText(text)
+    await copy(bundle)
     saveApplication(selectedJob)
-    window.open(selectedJob.url, '_blank')
-    addToast('🚀 Applied! Package copied, application logged. Follow-up set for Day 3 & 5.', 'success')
+    if (selectedJob.url) window.open(selectedJob.url, '_blank', 'noopener,noreferrer')
+    addToast(selectedJob.url ? 'Package copied and application logged' : 'Demo package copied and logged', 'success')
   }
 
   if (!selectedJob) {
     return (
       <aside className="app-panel">
         <div className="panel-header"><span className="panel-title">Application Package</span></div>
-        <div className="panel-empty">
-          <div className="panel-empty-icon">◈</div>
-          <span>Select a job → click ⚡ Prepare</span>
-          <span className="text-muted">Resume delta · Cover letter · LinkedIn DM · Email</span>
-        </div>
+        <div className="panel-empty"><div className="panel-empty-icon">◈</div><span>Select a job and click Prepare</span><span className="text-muted">Truth-checked drafts · gaps · proof checks</span></div>
       </aside>
     )
   }
@@ -367,301 +324,124 @@ function AppPanel() {
   if (!appPackage) {
     return (
       <aside className="app-panel">
-        <div className="panel-header"><span className="panel-title">Generating package...</span></div>
-        <div className="panel-empty">
-          <div className="spinner" style={{ width: 20, height: 20 }} />
-          <span>Composing for {selectedJob.company}</span>
-          <span className="text-muted">Resume delta · cover letter · DM · email</span>
-        </div>
+        <div className="panel-header"><span className="panel-title">Selected · {selectedJob.company}</span></div>
+        <div className="panel-empty"><span>Click ⚡ Prepare to compose a package.</span></div>
       </aside>
     )
   }
-
-  const sections = [
-    {
-      id: 'delta',
-      title: '▸ Resume Delta (add these 3 bullets)',
-      content: (appPackage.resumeDelta || []).join('\n'),
-      render: () => (
-        <div className="pkg-bullets">
-          {(appPackage.resumeDelta || []).map((b, i) => <div key={i} className="pkg-bullet">{b}</div>)}
-        </div>
-      ),
-    },
-    {
-      id: 'cover',
-      title: '▸ Cover Letter',
-      content: appPackage.coverLetter,
-      render: () => <div className="pkg-text">{appPackage.coverLetter}</div>,
-    },
-    {
-      id: 'dm',
-      title: `▸ LinkedIn DM → ${selectedJob.contactName}`,
-      content: appPackage.dm,
-      render: () => <div className="pkg-text">{appPackage.dm}</div>,
-    },
-    {
-      id: 'subject',
-      title: '▸ Email Subject Line',
-      content: appPackage.emailSubject,
-      render: () => <div className="pkg-text">{appPackage.emailSubject}</div>,
-    },
-  ]
 
   return (
     <aside className="app-panel">
       <div className="panel-header">
         <span className="panel-title">Package · {selectedJob.company}</span>
-        <button className="btn btn-link" onClick={clearPackage} id="panel-close">✕</button>
+        <button className="btn btn-link" onClick={clearPackage} type="button">✕</button>
       </div>
-
       <div className="panel-content">
-        {sections.map(s => (
-          <div key={s.id} className="pkg-section">
-            <div className="pkg-section-header" onClick={() => copy(s.content, s.id)}>
-              <span className="pkg-section-title">{s.title}</span>
-              <span className="pkg-section-check" style={{ color: copied === s.id ? 'var(--green)' : 'var(--accent)' }}>
-                {copied === s.id ? '✓ copied' : '⎘ copy'}
-              </span>
-            </div>
-            <div className="pkg-section-body">{s.render()}</div>
-          </div>
-        ))}
-
-        {/* Human Finder */}
+        <div style={{ padding: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 10, color: appPackage.mode === 'ai' ? 'var(--green)' : 'var(--yellow)' }}>
+          {appPackage.mode === 'ai' ? '● Gemini structured output' : '◌ Template mode'} · verify before sending
+        </div>
+        <PackageSection title="Resume Delta" value={appPackage.resumeDelta} onCopy={copy} />
+        <PackageSection title="Match Narrative" value={appPackage.matchNarrative} onCopy={copy} />
+        <PackageSection title="Evidence Gaps" value={appPackage.gaps} onCopy={copy} />
+        <PackageSection title="Cover Letter" value={appPackage.coverLetter} onCopy={copy} />
+        <PackageSection title="LinkedIn DM" value={appPackage.dm} onCopy={copy} />
+        <PackageSection title="Email Subject" value={appPackage.emailSubject} onCopy={copy} />
+        <PackageSection title="Proof Checks" value={appPackage.proofChecks} onCopy={copy} />
         {selectedJob.humanData && (
           <div className="pkg-section">
-            <div className="pkg-section-header">
-              <span className="pkg-section-title">▸ Human Finder</span>
-              <span className="pkg-section-check text-accent" onClick={() => copy(selectedJob.humanData.bestGuess, 'email')}>
-                {copied === 'email' ? '✓ copied' : '⎘ email'}
-              </span>
-            </div>
-            <div className="pkg-section-body" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div className="pkg-text bold">{selectedJob.humanData.name} · {selectedJob.humanData.role}</div>
-              <div className="pkg-text text-muted">📧 {selectedJob.humanData.bestGuess}</div>
-              <div className="pkg-text text-muted" style={{ fontSize: 10 }}>
-                Alt: {selectedJob.humanData.emailPatterns.slice(1).join(' · ')}
-              </div>
-              <a href={selectedJob.humanData.linkedinUrl} target="_blank" rel="noreferrer"
-                className="btn btn-ghost" style={{ marginTop: 2 }}>
-                ↗ Open LinkedIn Profile
-              </a>
+            <div className="pkg-section-header"><span className="pkg-section-title">▸ Human route</span></div>
+            <div className="pkg-section-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="pkg-text">{selectedJob.humanData.outreachTip}</div>
+              <a href={selectedJob.humanData.linkedinUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">↗ Search LinkedIn</a>
             </div>
           </div>
         )}
       </div>
-
       <div className="pkg-approve-bar">
-        <button id="approve-all-btn" className="btn btn-primary w-full" onClick={approveAll} style={{ justifyContent: 'center' }}>
-          ⚡ Approve All — Apply + Log + DM
+        <button className="btn btn-primary w-full" onClick={approve} type="button" style={{ justifyContent: 'center' }}>
+          ⚡ Copy + Log {selectedJob.url ? '+ Open Apply' : '(Demo)'}
         </button>
       </div>
     </aside>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// TRACKER VIEW (Sprint 2 — Follow-Up Engine)
-// ════════════════════════════════════════════════════════════
-function TrackerView() {
+function TrackerView({ now }) {
   const { tracker, setTracker, profile, addToast } = useAgent()
-  const [activeFollowUp, setActiveFollowUp] = useState(null) // { item, msg }
+  const [followUp, setFollowUp] = useState(null)
 
-  const updateItem = (id, patch) => {
-    const updated = tracker.map(t => t.id === id ? { ...t, ...patch } : t)
-    setTracker(updated)
-    localStorage.setItem('offerclaw_tracker', JSON.stringify(updated))
+  const patchItem = (id, patch) => {
+    setTracker(previous => previous.map(item => item.id === id ? { ...item, ...patch } : item))
   }
 
-  const generateFollowUp = (item, day) => {
-    const msg = skillFollowUp(item, profile, day)
-    setActiveFollowUp({ item, msg, day })
-  }
+  const openFollowUp = (item, day) => setFollowUp({ item, day, message: skillFollowUp(item, profile, day) })
 
-  const confirmFollowUp = () => {
-    if (!activeFollowUp) return
-    const { item, day } = activeFollowUp
-    navigator.clipboard.writeText(activeFollowUp.msg.content)
-    if (day === 3) updateItem(item.id, { followUpDay3: new Date().toISOString() })
-    if (day === 5) updateItem(item.id, { followUpDay5: new Date().toISOString() })
-    if (day === 7) updateItem(item.id, { status: 'archived' })
-    addToast(`Day ${day} message copied!`, 'success')
-    setActiveFollowUp(null)
+  const confirmFollowUp = async () => {
+    if (!followUp) return
+    const { item, day, message } = followUp
+    await navigator.clipboard.writeText([message.subject, message.content].filter(Boolean).join('\n\n'))
+    if (day === 3) patchItem(item.id, { followUpDay3: new Date().toISOString() })
+    if (day === 5) patchItem(item.id, { followUpDay5: new Date().toISOString() })
+    if (day === 7) patchItem(item.id, { status: 'archived' })
+    setFollowUp(null)
+    addToast(`Day ${day} follow-up copied`, 'success')
   }
-
-  const markResponse = (id) => {
-    updateItem(id, { status: 'response' })
-    addToast('🎉 Marked as responded! Great sign.', 'success')
-  }
-
-  if (tracker.length === 0) {
-    return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-        <div style={{ fontSize: 32 }}>◈</div>
-        <div>No applications yet</div>
-        <div style={{ color: 'var(--text-3)', fontSize: 11 }}>Use the Agent Chat to find and apply to jobs</div>
-      </div>
-    )
-  }
-
-  const active = tracker.filter(t => t.status !== 'archived')
-  const archived = tracker.filter(t => t.status === 'archived')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      {/* Follow-up message modal */}
-      {activeFollowUp && (
-        <div className="modal-overlay" onClick={() => setActiveFollowUp(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">{activeFollowUp.msg.label}</div>
-              <div className="modal-subtitle">{activeFollowUp.item.company} · {activeFollowUp.item.jobTitle}</div>
-            </div>
+    <div style={{ flex: 1, overflow: 'auto' }}>
+      {followUp && (
+        <div className="modal-overlay" onClick={() => setFollowUp(null)}>
+          <div className="modal" onClick={event => event.stopPropagation()}>
+            <div className="modal-header"><div className="modal-title">{followUp.message.label}</div><div className="modal-subtitle">{followUp.item.company} · {followUp.item.jobTitle}</div></div>
             <div className="modal-body">
-              {activeFollowUp.msg.subject && (
-                <div className="field-group">
-                  <label className="field-label">Email Subject</label>
-                  <div className="field-input" style={{ cursor: 'text' }}>{activeFollowUp.msg.subject}</div>
-                </div>
-              )}
-              <div className="field-group">
-                <label className="field-label">Message</label>
-                <div className="field-textarea" style={{ whiteSpace: 'pre-wrap', cursor: 'text', minHeight: 100 }}>
-                  {activeFollowUp.msg.content}
-                </div>
-              </div>
+              {followUp.message.subject && <div className="field-group"><label className="field-label">Subject</label><div className="field-input">{followUp.message.subject}</div></div>}
+              <div className="field-group"><label className="field-label">Message</label><div className="field-textarea" style={{ whiteSpace: 'pre-wrap' }}>{followUp.message.content}</div></div>
             </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setActiveFollowUp(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={confirmFollowUp}>
-                ⎘ Copy + Mark Done
-              </button>
-            </div>
+            <div className="modal-footer"><button className="btn btn-ghost" onClick={() => setFollowUp(null)} type="button">Cancel</button><button className="btn btn-primary" onClick={confirmFollowUp} type="button">Copy + mark done</button></div>
           </div>
         </div>
       )}
 
-      <div style={{ overflow: 'auto', flex: 1 }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-            {active.length} active · {archived.length} archived
-          </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className="btn btn-ghost" style={{ fontSize: 9, padding: '2px 6px' }}
-              onClick={() => { exportTrackerCSV(tracker); addToast('CSV exported!', 'success') }}>
-              ↓ CSV
-            </button>
-            <button className="btn btn-ghost" style={{ fontSize: 9, padding: '2px 6px' }}
-              onClick={() => { exportTrackerJSON(tracker); addToast('JSON exported!', 'success') }}>
-              ↓ JSON
-            </button>
-            <button className="btn btn-danger" style={{ fontSize: 9, padding: '2px 6px' }}
-              onClick={() => {
-                if (confirm('Clear ALL application data? This cannot be undone.')) {
-                  setTracker([])
-                  localStorage.removeItem('offerclaw_tracker')
-                  addToast('All data cleared.', 'info')
-                }
-              }}>
-              ✕ Clear
-            </button>
-          </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: 14, borderBottom: '1px solid var(--border)' }}>
+        <span className="text-muted text-xs text-mono">{tracker.length} applications</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn btn-ghost" onClick={() => exportTrackerCSV(tracker)} type="button">↓ CSV</button>
+          <button className="btn btn-ghost" onClick={() => exportTrackerJSON(tracker)} type="button">↓ JSON</button>
+          <button className="btn btn-danger" onClick={() => { if (confirm('Clear all pipeline data?')) setTracker([]) }} type="button">Clear</button>
         </div>
+      </div>
 
-        <div className="tracker-list">
-          {active.map(item => {
-            const daysAgo = Math.floor((Date.now() - new Date(item.appliedAt)) / 86400000)
-            const needsDay3 = daysAgo >= 3 && !item.followUpDay3 && item.status === 'applied'
-            const needsDay5 = daysAgo >= 5 && !item.followUpDay5 && item.status === 'applied'
-            const needsArchive = daysAgo >= 7 && item.status === 'applied'
-
-            return (
-              <div key={item.id} className={`tracker-item ${needsDay3 || needsDay5 ? 'needs-followup' : ''}`}
-                style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10 }}>
-                  <div className="tracker-item-title">{item.jobTitle}</div>
-                  <div className="tracker-item-co">{item.company}</div>
-                  <div className="tracker-item-day" style={{ marginLeft: 'auto' }}>
-                    {daysAgo === 0 ? 'Today' : `Day ${daysAgo}`}
-                  </div>
-                  <div>
-                    {item.status === 'response'
-                      ? <span className="badge badge-green">Response ✓</span>
-                      : needsArchive ? <span className="badge badge-red">7d — Archive?</span>
-                      : needsDay5 ? <span className="badge badge-red">Day 5 email due</span>
-                      : needsDay3 ? <span className="badge badge-yellow">Day 3 DM due</span>
-                      : <span className="badge badge-green">Applied</span>
-                    }
-                  </div>
-                </div>
-
-                {/* Follow-up actions */}
-                {(needsDay3 || needsDay5 || needsArchive) && item.status !== 'response' && (
-                  <div style={{ display: 'flex', gap: 6, width: '100%', flexWrap: 'wrap' }}>
-                    {needsDay3 && !item.followUpDay3 && (
-                      <button className="btn btn-ghost" style={{ fontSize: 10 }}
-                        onClick={() => generateFollowUp(item, 3)}>
-                        ↗ Generate Day 3 DM
-                      </button>
-                    )}
-                    {needsDay5 && !item.followUpDay5 && (
-                      <button className="btn btn-ghost" style={{ fontSize: 10 }}
-                        onClick={() => generateFollowUp(item, 5)}>
-                        ✉ Generate Day 5 Email
-                      </button>
-                    )}
-                    {needsArchive && (
-                      <button className="btn btn-danger" style={{ fontSize: 10 }}
-                        onClick={() => generateFollowUp(item, 7)}>
-                        Archive
-                      </button>
-                    )}
-                    {item.status !== 'response' && (
-                      <button className="btn btn-ghost" style={{ fontSize: 10, color: 'var(--green)' }}
-                        onClick={() => markResponse(item.id)}>
-                        🎉 Got a response!
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Follow-up log */}
-                {(item.followUpDay3 || item.followUpDay5) && (
-                  <div style={{ display: 'flex', gap: 8, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>
-                    {item.followUpDay3 && <span>✓ Day 3 sent</span>}
-                    {item.followUpDay5 && <span>✓ Day 5 sent</span>}
-                  </div>
-                )}
+      {tracker.length === 0 && <div className="panel-empty" style={{ minHeight: 220 }}><div className="panel-empty-icon">◈</div><span>No applications yet</span></div>}
+      <div className="tracker-list">
+        {tracker.map(item => {
+          const age = daysSince(item.appliedAt, now)
+          const day3 = age >= 3 && !item.followUpDay3 && item.status === 'applied'
+          const day5 = age >= 5 && !item.followUpDay5 && item.status === 'applied'
+          const archive = age >= 7 && item.status === 'applied'
+          return (
+            <div className={`tracker-item ${day3 || day5 ? 'needs-followup' : ''}`} key={item.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <div className="tracker-item-title">{item.jobTitle}</div>
+                <div className="tracker-item-co">{item.company}</div>
+                <div className="tracker-item-day" style={{ marginLeft: 'auto' }}>{age === 0 ? 'Today' : `Day ${age}`}</div>
+                <span className={`badge ${item.status === 'response' ? 'badge-green' : day5 ? 'badge-red' : day3 ? 'badge-yellow' : ''}`}>{item.status}</span>
               </div>
-            )
-          })}
-
-          {archived.length > 0 && (
-            <>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '12px 0 4px' }}>
-                Archived ({archived.length})
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {day3 && <button className="btn btn-ghost" onClick={() => openFollowUp(item, 3)} type="button">Day 3 DM</button>}
+                {day5 && <button className="btn btn-ghost" onClick={() => openFollowUp(item, 5)} type="button">Day 5 email</button>}
+                {archive && <button className="btn btn-ghost" onClick={() => openFollowUp(item, 7)} type="button">Refocus</button>}
+                {item.status === 'applied' && <button className="btn btn-ghost" onClick={() => patchItem(item.id, { status: 'response' })} type="button">Mark response</button>}
+                {item.url && <a href={item.url} target="_blank" rel="noreferrer" className="btn btn-link">Open listing ↗</a>}
               </div>
-              {archived.map(item => (
-                <div key={item.id} className="tracker-item" style={{ opacity: 0.45 }}>
-                  <div className="tracker-item-title">{item.jobTitle}</div>
-                  <div className="tracker-item-co">{item.company}</div>
-                  <div className="tracker-item-day" style={{ marginLeft: 'auto' }}>Archived</div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// SETTINGS VIEW (Sprint 2 — Resume upload, API key)
-// ════════════════════════════════════════════════════════════
-function SettingsView() {
+function SettingsView({ runtime }) {
   const { profile, setProfile, addToast } = useAgent()
   const [form, setForm] = useState({
     name: profile?.name || '',
@@ -671,322 +451,181 @@ function SettingsView() {
     location: profile?.location || '',
     achievement: profile?.achievement || '',
     resume: profile?.resume || '',
-    geminiKey: localStorage.getItem('offerclaw_gemini_key') || '',
-    jsearchKey: localStorage.getItem('offerclaw_jsearch_key') || '',
   })
-  const fileRef = useRef()
+  const fileRef = useRef(null)
 
-  const handleFile = (e) => {
-    const file = e.target.files[0]
+  const handleFile = (event) => {
+    const file = event.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      setForm(f => ({ ...f, resume: ev.target.result }))
-      addToast('Resume loaded (used for AI personalisation)', 'info')
-    }
+    reader.onload = loadEvent => setForm(previous => ({ ...previous, resume: String(loadEvent.target?.result || '') }))
     reader.readAsText(file)
   }
 
   const save = () => {
-    const { geminiKey, jsearchKey, ...profileData } = form
-    setProfile(profileData)
-    localStorage.setItem('offerclaw_profile', JSON.stringify(profileData))
-    if (geminiKey) localStorage.setItem('offerclaw_gemini_key', geminiKey)
-    else localStorage.removeItem('offerclaw_gemini_key')
-    if (jsearchKey) localStorage.setItem('offerclaw_jsearch_key', jsearchKey)
-    else localStorage.removeItem('offerclaw_jsearch_key')
-    addToast('Profile & API keys saved!', 'success')
+    setProfile(form)
+    addToast('Profile saved locally', 'success')
   }
 
   return (
-    <div style={{ overflow: 'auto', flex: 1, padding: 16, display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 520 }}>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-        Profile & Settings
-      </div>
-
+    <div style={{ overflow: 'auto', flex: 1, padding: 16, display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 620 }}>
+      <div className="text-muted text-xs text-mono">PROFILE & RUNTIME</div>
       {[
-        { key: 'name', label: 'Full Name', ph: 'Arjun Sharma' },
-        { key: 'currentRole', label: 'Target Role', ph: 'Frontend Engineer, React Developer...' },
-        { key: 'experience', label: 'Years of Experience', ph: '3' },
-        { key: 'location', label: 'Location Preference', ph: 'Bangalore / Remote / Mumbai' },
-        { key: 'skills', label: 'Top Skills (comma separated)', ph: 'React, TypeScript, Node.js, Redux' },
-        { key: 'achievement', label: 'Best Achievement (1 line, quantified)', ph: 'Rebuilt checkout flow — 40% faster, $2M lift' },
-      ].map(f => (
-        <div key={f.key} className="field-group">
-          <label className="field-label">{f.label}</label>
-          <input className="field-input" placeholder={f.ph} value={form[f.key]}
-            onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} />
+        ['name', 'Full Name', 'Your name'],
+        ['currentRole', 'Target Role', 'Frontend Engineer, AI Product Engineer...'],
+        ['experience', 'Experience', '2 years / fresher / internships...'],
+        ['location', 'Location Preference', 'Bengaluru / Remote / India'],
+        ['skills', 'Top Skills', 'React, TypeScript, Python, LLM APIs'],
+        ['achievement', 'Best Verified Proof Point', 'A real result you can defend in an interview'],
+      ].map(([key, label, placeholder]) => (
+        <div className="field-group" key={key}>
+          <label className="field-label">{label}</label>
+          <input className="field-input" value={form[key]} placeholder={placeholder} onChange={event => setForm(previous => ({ ...previous, [key]: event.target.value }))} />
         </div>
       ))}
 
-      {/* Resume upload */}
       <div className="field-group">
-        <label className="field-label">Resume / CV (text — optional, improves AI output)</label>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
-            📄 Upload .txt / .md resume
-          </button>
-          {form.resume && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--green)' }}>
-              ✓ {Math.round(form.resume.length / 100) * 100} chars loaded
-            </span>
-          )}
-          <input ref={fileRef} type="file" accept=".txt,.md" style={{ display: 'none' }} onChange={handleFile} />
+        <label className="field-label">Resume / CV text</label>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+          <button className="btn btn-ghost" onClick={() => fileRef.current?.click()} type="button">📄 Load .txt / .md</button>
+          {form.resume && <span className="text-muted text-xs text-mono">{form.resume.length.toLocaleString()} chars</span>}
+          <input ref={fileRef} type="file" accept=".txt,.md" hidden onChange={handleFile} />
         </div>
-        <textarea className="field-textarea" placeholder="Or paste your resume text here..."
-          value={form.resume} onChange={e => setForm(p => ({ ...p, resume: e.target.value }))}
-          style={{ marginTop: 6, fontSize: 11, minHeight: 80 }} />
+        <textarea className="field-textarea" value={form.resume} onChange={event => setForm(previous => ({ ...previous, resume: event.target.value }))} placeholder="Paste resume text. Generated content will be constrained to this evidence." style={{ minHeight: 120 }} />
       </div>
 
-      {/* API Keys section */}
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 8 }}>
-        API Keys (BYOK — stored in browser only)
-      </div>
+      <button className="btn btn-primary" onClick={save} type="button" style={{ alignSelf: 'flex-start' }}>Save Profile</button>
 
-      <div className="field-group">
-        <label className="field-label">JSearch API Key — for real job listings (RapidAPI, 500 free/month)</label>
-        <input className="field-input" type="password" placeholder="RapidAPI key..."
-          value={form.jsearchKey} onChange={e => setForm(p => ({ ...p, jsearchKey: e.target.value }))} />
-        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-          {form.jsearchKey
-            ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--green)' }}>✓ Live mode — real job listings active</span>
-            : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>No key — using demo data. Get free key from rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch</span>
-          }
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="field-label">Secure provider runtime</div>
+        <div className="pkg-text">Gemini: {runtime?.ai?.configured ? `ready · ${runtime.ai.model} · Interactions API` : 'not configured · templates active'}</div>
+        <div className="pkg-text">Jobs: {runtime?.jobs?.configured ? 'JSearch ready' : 'not configured · demo listings active'}</div>
+        <div className="text-muted text-xs text-mono" style={{ lineHeight: 1.6 }}>
+          OfferClaw no longer asks users to paste provider secrets into the browser. Self-hosted deployments configure GEMINI_API_KEY and JSEARCH_API_KEY on the server.
         </div>
-      </div>
-
-      <div className="field-group">
-        <label className="field-label">Gemini API Key — for AI-personalised content (Google AI Studio, free)</label>
-        <input className="field-input" type="password" placeholder="AIzaSy..."
-          value={form.geminiKey} onChange={e => setForm(p => ({ ...p, geminiKey: e.target.value }))} />
-        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-          {form.geminiKey
-            ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--green)' }}>✓ AI mode — cover letters & DMs personalised by Gemini</span>
-            : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>No key — using template content. Get free key at aistudio.google.com</span>
-          }
-        </div>
-      </div>
-
-      <button id="save-settings-btn" className="btn btn-primary" onClick={save} style={{ alignSelf: 'flex-start' }}>
-        Save Profile & Keys
-      </button>
-
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <a href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch" target="_blank" rel="noreferrer" className="btn btn-link" style={{ padding: 0 }}>
-          ↗ Get JSearch key (free)
-        </a>
-        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="btn btn-link" style={{ padding: 0 }}>
-          ↗ Get Gemini key (free)
-        </a>
       </div>
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// ONBOARDING
-// ════════════════════════════════════════════════════════════
 function Onboarding({ onDone }) {
   const [form, setForm] = useState({ name: '', currentRole: '', skills: '', location: '' })
-  const canSubmit = form.name.trim() && form.currentRole.trim()
+  const ready = form.name.trim() && form.currentRole.trim()
 
   return (
     <div className="modal-overlay">
       <div className="modal">
-        <div className="modal-header">
-          <div className="modal-title">Welcome to OfferClaw</div>
-          <div className="modal-subtitle">30-second setup. No account needed.</div>
-        </div>
+        <div className="modal-header"><div className="modal-title">Welcome to OfferClaw</div><div className="modal-subtitle">Set your search direction. No account required.</div></div>
         <div className="modal-body">
           {[
-            { key: 'name', label: 'Your Name', ph: 'Arjun Sharma' },
-            { key: 'currentRole', label: 'Role You Are Targeting', ph: 'Frontend Engineer, React Developer...' },
-            { key: 'skills', label: 'Top Skills', ph: 'React, TypeScript, Node.js' },
-            { key: 'location', label: 'Location / Preference', ph: 'Bangalore, Remote, Mumbai...' },
-          ].map(f => (
-            <div key={f.key} className="field-group">
-              <label className="field-label">{f.label}</label>
-              <input id={`onboard-${f.key}`} className="field-input" placeholder={f.ph}
-                value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} />
-            </div>
+            ['name', 'Your Name', 'Chandan Pandey'],
+            ['currentRole', 'Target Role', 'AI Engineer, Product Engineer...'],
+            ['skills', 'Top Skills', 'Python, React, AI agents...'],
+            ['location', 'Location', 'India / Remote / Bengaluru'],
+          ].map(([key, label, placeholder]) => (
+            <div className="field-group" key={key}><label className="field-label">{label}</label><input className="field-input" value={form[key]} placeholder={placeholder} onChange={event => setForm(previous => ({ ...previous, [key]: event.target.value }))} /></div>
           ))}
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-2)', lineHeight: 1.65 }}>
-            💡 All data stays in your browser. Add a Gemini API key in Settings for AI-powered personalisation.
-          </div>
+          <div className="text-muted text-xs text-mono" style={{ lineHeight: 1.6 }}>Your profile and pipeline stay in this browser. AI/job-provider secrets belong on the server, not in localStorage.</div>
         </div>
-        <div className="modal-footer">
-          <button id="launch-agent-btn" className="btn btn-primary" onClick={() => canSubmit && onDone(form)}
-            style={{ opacity: canSubmit ? 1 : 0.45 }}>
-            Launch Agent →
-          </button>
-        </div>
+        <div className="modal-footer"><button className="btn btn-primary" disabled={!ready} onClick={() => ready && onDone(form)} type="button">Launch Agent →</button></div>
       </div>
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// TOASTS
-// ════════════════════════════════════════════════════════════
 function ToastStack() {
   const { toasts } = useAgent()
-  return (
-    <div className="toast-stack">
-      {toasts.map(t => <div key={t.id} className="toast">{t.text}</div>)}
-    </div>
-  )
+  return <div className="toast-stack">{toasts.map(toast => <div className="toast" key={toast.id}>{toast.text}</div>)}</div>
 }
 
-// ════════════════════════════════════════════════════════════
-// DAILY DIGEST PROMPT (Sprint 3 — Morning nudge)
-// ════════════════════════════════════════════════════════════
 function DailyDigestBanner() {
-  const { tracker, profile, addMessage, setView } = useAgent()
-  const [dismissed, setDismissed] = useState(() => {
-    return localStorage.getItem('offerclaw_digest_dismissed') === new Date().toDateString()
-  })
-
+  const { tracker, profile, addMessage } = useAgent()
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem('offerclaw_digest_dismissed') === new Date().toDateString())
   const digest = skillDailyDigest(tracker, profile)
-  const show = !dismissed && (digest.pending.length > 0 || digest.todayApplied < digest.targetForDay)
+  if (dismissed || (!digest.pending.length && digest.todayApplied >= digest.targetForDay)) return null
 
-  if (!show) return null
-
-  const openDigest = () => {
+  const open = () => {
     addMessage({ type: 'agent', text: digest.message })
+    const today = new Date().toDateString()
+    localStorage.setItem('offerclaw_digest_dismissed', today)
     setDismissed(true)
-    localStorage.setItem('offerclaw_digest_dismissed', new Date().toDateString())
-    setView('chat')
   }
 
   return (
-    <div style={{
-      background: 'var(--accent-glow)', border: '1px solid rgba(217,119,6,0.25)',
-      padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10,
-      fontFamily: 'var(--font-mono)', fontSize: 11,
-    }}>
+    <div style={{ background: 'var(--accent-glow)', borderBottom: '1px solid rgba(217,119,6,0.25)', padding: '8px 14px', display: 'flex', gap: 10, alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
       <span style={{ color: 'var(--accent)' }}>⚡</span>
-      <span style={{ color: 'var(--text-1)', flex: 1 }}>
-        {digest.pending.length > 0
-          ? `${digest.pending.length} follow-up${digest.pending.length > 1 ? 's' : ''} due today`
-          : `Daily sprint: ${digest.todayApplied}/${digest.targetForDay} applications`}
-      </span>
-      <button className="btn btn-ghost" style={{ fontSize: 10, padding: '3px 8px' }} onClick={openDigest}>
-        View Digest
-      </button>
-      <button className="btn btn-link" style={{ fontSize: 11, padding: '3px' }}
-        onClick={() => { setDismissed(true); localStorage.setItem('offerclaw_digest_dismissed', new Date().toDateString()) }}>
-        ✕
-      </button>
+      <span style={{ flex: 1 }}>{digest.pending.length ? `${digest.pending.length} follow-up${digest.pending.length === 1 ? '' : 's'} due` : `${digest.todayApplied}/${digest.targetForDay} focused applications today`}</span>
+      <button className="btn btn-ghost" onClick={open} type="button">View digest</button>
     </div>
   )
 }
 
-// ════════════════════════════════════════════════════════════
-// MAIN APP
-// ════════════════════════════════════════════════════════════
 export default function App() {
   const {
-    profile, setProfile,
-    addMessage, setJobs, jobs,
-    setSelectedJob, setAppPackage,
-    agentStatus, setAgentStatus,
+    profile, setProfile, addMessage, jobs, setJobs,
+    setSelectedJob, setAppPackage, setAgentStatus,
     tracker, view, setView, addToast,
   } = useAgent()
+  const [runtime, setRuntime] = useState(null)
 
-  // Load saved profile on mount
   useEffect(() => {
-    const saved = localStorage.getItem('offerclaw_profile')
-    if (saved) {
-      try { setProfile(JSON.parse(saved)) } catch { }
-    }
+    let active = true
+    fetch('/api/health', { headers: { Accept: 'application/json' } })
+      .then(response => response.ok ? response.json() : Promise.reject(new Error('health')))
+      .then(data => { if (active) setRuntime(data) })
+      .catch(() => { if (active) setRuntime({ ok: false, ai: { configured: false }, jobs: { configured: false } }) })
+    return () => { active = false }
   }, [])
 
-  const getKeys = () => ({
-    gemini: localStorage.getItem('offerclaw_gemini_key') || null,
-    jsearch: localStorage.getItem('offerclaw_jsearch_key') || null,
-  })
+  const prepare = async (job) => {
+    setSelectedJob(job)
+    setAppPackage(null)
+    setAgentStatus('running')
+    addMessage({ type: 'agent', text: `Building a truth-checked package for ${job.company}...` })
+    const pkg = await skillApplicationComposer(job, profile)
+    setAppPackage(pkg)
+    addMessage({ type: 'agent', text: pkg.mode === 'ai' ? '✅ Structured AI package ready. Review evidence gaps before sending.' : '◌ Template package ready. Configure server-side Gemini to enable structured AI drafting.' })
+    setAgentStatus('idle')
+  }
 
-  const handleSubmit = useCallback(async (input) => {
+  const submit = async (input) => {
     if (!profile) return
     addMessage({ type: 'user', text: input })
     setAgentStatus('thinking')
-    const keys = getKeys()
-
-    try {
-      await runAgent(input, profile, keys, tracker, {
-        onMessage: (msg) => addMessage({ type: msg.type, text: msg.text }),
-        onJobs: (j) => setJobs(j),
-        onSetView: (v) => setView(v),
-        onError: (err) => addToast(err, 'error'),
-        onDone: async (val) => {
-          if (typeof val === 'number') {
-            const job = jobs[val - 1]
-            if (job) {
-              setSelectedJob(job)
-              setAppPackage(null)
-              addMessage({ type: 'agent', text: `Composing application package for ${job.company}...` })
-              try {
-                const pkg = await skillApplicationComposer(job, profile, keys.gemini)
-                setAppPackage(pkg)
-                addMessage({ type: 'agent', text: `✅ Package ready. Review in the right panel → Approve All to apply.` })
-              } catch (err) {
-                addMessage({ type: 'agent', text: `⚠ ${err.message}\nUsing template content instead.` })
-                const pkg = await skillApplicationComposer(job, profile, null)
-                setAppPackage(pkg)
-              }
-            }
-          }
-          setAgentStatus('idle')
-        },
-      })
-    } catch (err) {
-      addMessage({ type: 'agent', text: `Error: ${err.message}` })
-    }
+    await runAgent(input, profile, null, tracker, {
+      currentJobs: jobs,
+      onMessage: message => addMessage(message),
+      onJobs: setJobs,
+      onSetView: setView,
+      onError: error => addToast(error, 'error'),
+      onDone: async index => {
+        if (typeof index === 'number') {
+          const job = jobs[index - 1]
+          if (job) await prepare(job)
+          else addMessage({ type: 'agent', text: 'That job number is not available. Run “find me jobs” first.' })
+        }
+      },
+    })
     setAgentStatus('idle')
-  }, [profile, jobs, tracker])
-
-  const handlePrepare = useCallback(async (job) => {
-    setSelectedJob(job)
-    setAppPackage(null)
-    addMessage({ type: 'agent', text: `Composing application package for ${job.company}...` })
-    setAgentStatus('running')
-    try {
-      const pkg = await skillApplicationComposer(job, profile, getKeys().gemini)
-      setAppPackage(pkg)
-      addMessage({ type: 'agent', text: `✅ Package ready. Click sections to copy. Hit "Approve All" to apply + log.` })
-    } catch (err) {
-      addMessage({ type: 'agent', text: `⚠ ${err.message}\nUsing template content.` })
-      const pkg = await skillApplicationComposer(job, profile, null)
-      setAppPackage(pkg)
-    }
-    setAgentStatus('idle')
-  }, [profile])
+  }
 
   const finishOnboarding = (data) => {
     setProfile(data)
-    localStorage.setItem('offerclaw_profile', JSON.stringify(data))
-    addMessage({
-      type: 'agent',
-      text: `Welcome, ${data.name}! Ready to find you a ${data.currentRole} role.\n\nTry:\n  > find me jobs\n  > daily digest`,
-    })
+    addMessage({ type: 'agent', text: `Welcome, ${data.name}. Start with “find me jobs”, then use “analyze 1” before deciding where to spend your time.` })
   }
 
   return (
     <>
       {!profile && <Onboarding onDone={finishOnboarding} />}
       <div className="app-layout">
-        <Topbar />
-        <Sidebar />
+        <Topbar runtime={runtime} />
+        <Sidebar now={SESSION_NOW} />
         <main className="app-chat">
+          {view === 'chat' && <RuntimeNotice runtime={runtime} />}
           {view === 'chat' && <DailyDigestBanner />}
-          {view === 'chat' && (
-            <>
-              <ChatMessages onPrepare={handlePrepare} />
-              <ChatInput onSubmit={handleSubmit} />
-            </>
-          )}
-          {view === 'tracker' && <TrackerView />}
-          {view === 'settings' && <SettingsView />}
+          {view === 'chat' && <><ChatMessages onPrepare={prepare} /><ChatInput onSubmit={submit} /></>}
+          {view === 'tracker' && <TrackerView now={SESSION_NOW} />}
+          {view === 'settings' && <SettingsView runtime={runtime} />}
         </main>
         {view === 'chat' && <AppPanel />}
       </div>
