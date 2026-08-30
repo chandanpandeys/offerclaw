@@ -37,5 +37,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test agent core
+        run: npm test
+
       - name: Build
         run: npm run build
