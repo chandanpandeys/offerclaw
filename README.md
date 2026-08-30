@@ -1,23 +1,47 @@
 # OfferClaw
 
-**Quality-first AI job search agent.** Find fresher opportunities, sanity-check listings, identify the right human to contact, prepare tailored outreach, and keep follow-ups organized — directly in your browser.
+**Quality-first job search agent for people who would rather make three strong applications than spray hundreds of weak ones.**
 
-![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square) ![Vite](https://img.shields.io/badge/Vite-7-646cff?style=flat-square) ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+OfferClaw ranks recent roles, exposes listing-risk signals, helps you find the right human to contact, creates truth-checked application drafts, and keeps follow-ups organized.
 
-## What it does
+![React](https://img.shields.io/badge/React-19.2-61dafb?style=flat-square) ![Gemini](https://img.shields.io/badge/Gemini-Interactions_API-4285F4?style=flat-square) ![Vercel](https://img.shields.io/badge/runtime-Vercel_Functions-black?style=flat-square) ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
-OfferClaw is deliberately not a mass-apply bot. It helps you spend more time on fewer, better-targeted applications.
+## Why this version matters
 
-- **Job Scout** — ranks fresh listings against your profile
-- **Ghost Detector** — flags stale or low-signal postings before you spend time applying
-- **Human Finder** — helps you locate the likely hiring manager and prepare direct outreach
-- **Application Composer** — drafts role-specific resume deltas, cover letters, DMs, and email subjects
-- **Follow-Up Engine** — keeps Day 3 / Day 5 / Day 7 follow-ups visible
-- **Pipeline Tracker** — stores applications locally and exports CSV/JSON
-- **Daily Digest** — turns the pipeline into a focused daily sprint
-- **Demo mode** — works without API keys so the UI can be explored immediately
+OfferClaw no longer treats an AI model or an API key as a frontend detail.
 
-## Quick start
+- Provider credentials stay **server-side**.
+- Gemini calls use the **Interactions API**, not the legacy `generateContent` integration.
+- The default model is configurable with `GEMINI_MODEL` and currently defaults to `gemini-3.7-flash`.
+- AI application drafts use **structured JSON output** so the UI receives predictable fields.
+- Demo and live listings are visibly different.
+- Human Finder does **not invent email addresses or recruiter identities**.
+- Resume/application generation is constrained to evidence present in the user's profile/resume.
+- The app remains useful without provider credentials through demo jobs and template drafting.
+
+## Core workflow
+
+1. Create a local candidate profile.
+2. Run `find me jobs`.
+3. Review match and listing-confidence signals.
+4. Run `analyze 1` before investing time in a role.
+5. Run `prepare 1` for a truth-checked application package.
+6. Review evidence gaps and proof checks.
+7. Apply, log the application, and follow up on Day 3 / Day 5.
+
+Useful commands:
+
+```text
+find me jobs
+analyze 1
+prepare 1
+daily digest
+status
+export
+help
+```
+
+## Quick start — demo mode
 
 Requirements: Node.js 22+ and npm.
 
@@ -28,118 +52,157 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`, complete onboarding, and try `find me jobs`.
+Open `http://localhost:5173`.
 
-### Production check
+With plain Vite development, `/api/*` is not provided, so OfferClaw automatically falls back to demo listings and template application content. This makes the UI usable without any external account or secret.
+
+## Full local runtime
+
+The connected runtime uses Vercel Functions under `api/`.
+
+Copy the environment template and add server-side credentials:
 
 ```bash
-npm run lint
-npm run build
-npm run preview
+cp .env.example .env.local
 ```
-
-## Optional API keys (BYOK)
-
-OfferClaw works in demo mode with no keys. For live data and AI-assisted writing, you can add your own keys in the app.
-
-| Key | Purpose | Provider |
-|---|---|---|
-| **JSearch / RapidAPI** | Live job listings | RapidAPI JSearch |
-| **Gemini API** | Tailored application content | Google AI Studio |
-
-Keys and profile data are stored in browser `localStorage`; there is no OfferClaw account or application database. API requests are sent directly from your browser to the relevant provider.
-
-> **Security note:** browser storage is convenient, not a secret vault. Only use keys with appropriate quotas/restrictions, do not reuse sensitive production credentials, and clear site data on shared devices. See [SECURITY.md](SECURITY.md).
-
-## Agent commands
-
-Use natural commands such as:
 
 ```text
-find me jobs
-prepare 1
-daily digest
-export
-help
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.7-flash
+JSEARCH_API_KEY=...
 ```
 
-## How the ranking works
+Then run the project through Vercel's local runtime (for example with `vercel dev`) so the frontend and `/api` routes share the same origin.
 
-OfferClaw combines a simple profile match score with listing-quality signals such as:
+**Never prefix these secrets with `VITE_`.** Vite-prefixed variables are intended to be exposed to browser code.
+
+## Runtime architecture
+
+```text
+Browser
+  ├─ React UI
+  ├─ local profile + pipeline (localStorage)
+  └─ same-origin requests
+       ├─ POST /api/jobs
+       │    └─ JSearch / RapidAPI
+       └─ POST /api/ai
+            └─ Gemini Interactions API
+```
+
+The browser never needs the Gemini or JSearch secret.
+
+### API routes
+
+- `GET /api/health` — reports which provider capabilities are configured without exposing secrets.
+- `POST /api/jobs` — validates search input, calls JSearch, and returns a bounded result set.
+- `POST /api/ai` — validates prompt size, applies a lightweight abuse guard, calls Gemini with `store: false`, and supports structured output.
+
+## Application package
+
+For each selected role, OfferClaw can create:
+
+- **Resume Delta** — what to emphasize or change without inventing achievements.
+- **Match Narrative** — the strongest defensible overlap with the role.
+- **Evidence Gaps** — requirements that are not supported by the current profile/resume.
+- **Cover Letter** — concise, role-specific copy.
+- **LinkedIn DM** — short direct outreach.
+- **Email Subject** — a focused subject line.
+- **Proof Checks** — reminders about claims that must remain verifiable.
+
+If the AI runtime is unavailable, OfferClaw returns a conservative template package instead of failing the workflow.
+
+## Listing analysis
+
+The listing-confidence score is a heuristic, not a fraud detector. It considers available signals such as:
 
 - posting freshness
-- salary transparency
-- source quality
-- visible company/hiring signals
-- overlap with the skills in your profile
+- presence of compensation data
+- whether the application destination appears employer-controlled
+- description detail
+- presence of a usable application URL
 
-The Ghost Detector is a heuristic, not a guarantee. Treat it as a prioritization aid and verify important listings on the employer's official careers site.
+Always verify important roles on the employer's official careers site.
 
-## Application composer
+## Human Finder
 
-For a selected role, OfferClaw can prepare:
-
-1. **Resume Delta** — bullets to emphasize for this role
-2. **Cover Letter** — short, company-specific draft
-3. **LinkedIn DM** — concise outreach to the likely hiring contact
-4. **Email Subject** — short subject line built around a differentiator
-
-Generated content should always be reviewed before sending.
+OfferClaw builds a targeted LinkedIn people-search route for the company and role. It intentionally does not fabricate personal email patterns, names, or recruiter identities. The user verifies the person before outreach.
 
 ## Follow-up workflow
 
-The default cadence is intentionally simple:
+Defaults:
 
-- **Day 3** — LinkedIn follow-up
-- **Day 5** — email follow-up
-- **Day 7** — archive or refocus
+- **Day 3** — short LinkedIn/check-in message
+- **Day 5** — concise email follow-up
+- **Day 7** — verify the opening, send one final useful note only if appropriate, then refocus
 
-You can treat these as defaults rather than universal rules; adapt them to the company and application channel.
+These are workflow defaults, not universal recruiting rules.
 
 ## Tech stack
 
-- **Frontend:** React 19 + Vite 7
+- **Frontend:** React 19.2 + Vite 7
 - **Styling:** Vanilla CSS
-- **AI:** Gemini API, optional BYOK
-- **Jobs:** JSearch API, optional BYOK
-- **Storage:** browser `localStorage`
-- **Backend:** none in the current production app
+- **AI:** Gemini Interactions API through a server function
+- **Jobs:** JSearch through a server function
+- **Hosting/runtime:** Vercel-compatible functions
+- **User storage:** browser `localStorage`
+- **Tests:** Node's built-in test runner
+- **Maintenance:** GitHub Actions + weekly Dependabot checks
+
+Vite 8 is current upstream, but this repository stays on its existing locked Vite 7 toolchain until the upgrade is performed with a regenerated lockfile and verified as its own change rather than forcing a risky lockfile edit by hand.
 
 ## Project structure
 
 ```text
+api/
+├── ai.js               # Gemini Interactions API proxy
+├── health.js           # Runtime capability check
+└── jobs.js             # JSearch proxy
 src/
-├── agent.js           # Agent skills and orchestration
-├── AgentContext.jsx   # React context and local persistence
-├── App.jsx            # Main UI
-├── index.css          # Design system and layout
-└── main.jsx           # Application entry point
+├── agent.js            # Ranking, safety heuristics, agent commands, structured composer
+├── agentContext.js     # Context + hook
+├── AgentContext.jsx    # Local state/persistence provider
+├── App.jsx             # Product UI
+├── index.css           # Design system
+└── main.jsx            # Entry point
+test/
+└── agent.test.js       # Core safety/decision tests
 ```
 
-Experimental ingestion work lives separately from the browser app so scraping ideas can be benchmarked before they are coupled to production.
+The Scrapling ingestion experiment remains isolated under its own PR/experiment track until benchmark results justify coupling a scraper service to production.
 
-## Current limitations
-
-- Live search depends on third-party API availability and quotas.
-- Hiring-manager discovery is assistive; it does not guarantee a verified contact identity or email address.
-- Ghost-job scoring is heuristic and can produce false positives/negatives.
-- Browser-only API keys are exposed to the browser runtime and should be scoped accordingly.
-- There is currently no multi-device sync or hosted backend.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance. Pull requests that improve reliability, accessibility, tests, data quality, or provider abstraction are especially useful.
-
-## Release readiness
+## Quality gate
 
 Every pull request should pass:
 
 ```bash
+npm ci
+npm audit --omit=dev --audit-level=high
 npm run lint
+npm test
 npm run build
 ```
 
-CI runs the same checks on GitHub Actions.
+CI runs the same gate on GitHub Actions.
+
+## Six-month engineering direction
+
+Near-term improvements should prioritize capabilities that survive model/vendor churn rather than model-specific tricks:
+
+1. **Provider abstraction and fallbacks** — add a second AI provider or gateway without changing product logic.
+2. **Evaluation harness** — score resume drafts for unsupported claims, relevance, verbosity, and schema reliability.
+3. **Ingestion benchmark** — decide whether the Scrapling path beats JSearch on freshness, completeness, reliability, and maintenance cost.
+4. **Saved job evidence** — retain the exact job text/source used to generate an application so users can audit what the model saw.
+5. **Optional encrypted sync** — keep local-first behavior while enabling multi-device pipelines for users who opt in.
+6. **Accessibility and mobile pass** — make the workflow strong outside a desktop terminal-style layout.
+7. **Toolchain upgrade** — move to Vite 8.x in a dedicated dependency PR after lockfile regeneration and browser verification.
+
+## Security
+
+See [SECURITY.md](SECURITY.md). Provider keys belong in the server environment. Resume text can contain sensitive personal data and is only sent to the configured AI provider when the user requests an application package.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Reliability, accessibility, evaluations, ingestion quality, tests, and provider abstraction are especially valuable contributions.
 
 ## License
 
