@@ -71,15 +71,16 @@ export default async function handler(req, res) {
   }
 
   const model = env.GEMINI_MODEL || 'gemini-3.7-flash'
-  const input = systemPrompt
-    ? `${systemPrompt}\n\nUSER TASK\n${prompt}`
-    : prompt
-
   const payload = {
     model,
     store: false,
-    input,
+    input: prompt,
+    generation_config: {
+      max_output_tokens: 2048,
+    },
   }
+
+  if (systemPrompt) payload.system_instruction = systemPrompt
 
   if (responseSchema) {
     payload.response_format = {
