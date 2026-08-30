@@ -63,7 +63,7 @@ const APPLICATION_SCHEMA = {
 }
 
 function cleanText(value, max = 12_000) {
-  return String(value || '').replace(/\u0000/g, '').slice(0, max)
+  return String(value || '').split(String.fromCodePoint(0)).join('').slice(0, max)
 }
 
 async function readJsonResponse(response) {
