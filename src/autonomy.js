@@ -1,4 +1,4 @@
-import { ACTION, CAPABILITY, capabilityFor } from './connectors'
+import { ACTION, CAPABILITY, capabilityFor } from './connectors.js'
 
 export const AUTONOMY_MODE = Object.freeze({
   RESEARCH: 'research',
