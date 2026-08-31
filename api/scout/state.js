@@ -10,7 +10,7 @@ import {
   getRedisStoreConfig,
   readScoutRecord,
 } from '../_lib/redisStore.js'
-import { normalizeScoutState } from '../../src/scoutState.js'
+import { nextScoutStateDueAt, normalizeScoutState } from '../../src/scoutState.js'
 
 function parseBody(req) {
   if (!req.body) return {}
@@ -24,6 +24,7 @@ function parseBody(req) {
 function stateKeys(subject) {
   const namespace = identityNamespace(subject)
   return {
+    namespace,
     stateKey: `${namespace}:scout:state`,
     revisionKey: `${namespace}:scout:revision`,
   }
@@ -44,6 +45,14 @@ function runtime(req) {
     identity,
     storeConfig,
     ...stateKeys(identity.verification.subject),
+  }
+}
+
+function scheduleForState(namespace, state) {
+  const dueAt = nextScoutStateDueAt(state)
+  return {
+    member: namespace,
+    dueScore: dueAt ? new Date(dueAt).getTime() : -1,
   }
 }
 
@@ -76,7 +85,12 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'DELETE') {
-      await deleteScoutRecord(context.storeConfig, context.stateKey, context.revisionKey)
+      await deleteScoutRecord(
+        context.storeConfig,
+        context.stateKey,
+        context.revisionKey,
+        context.namespace,
+      )
       return res.status(200).json({ deleted: true, revision: 0, state: null })
     }
 
@@ -95,6 +109,7 @@ export default async function handler(req, res) {
       context.revisionKey,
       expectedRevision,
       state,
+      scheduleForState(context.namespace, state),
     )
 
     if (!result.written) {
