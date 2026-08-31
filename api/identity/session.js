@@ -4,6 +4,7 @@ import {
   deviceCookieHeader,
   getDeviceIdentityConfig,
   identityFromRequest,
+  isTrustedSameOriginRequest,
   issueDeviceIdentity,
   publicDeviceIdentityRuntime,
   verifyDeviceToken,
@@ -30,6 +31,7 @@ export default function handler(req, res) {
   }
 
   if (req.method === 'POST') {
+    if (!isTrustedSameOriginRequest(req)) return res.status(403).json({ error: 'identity_origin_rejected' })
     if (!config.configured) return res.status(503).json({ error: 'identity_not_configured' })
 
     const current = identityFromRequest(req, config)
@@ -58,6 +60,7 @@ export default function handler(req, res) {
   }
 
   if (req.method === 'DELETE') {
+    if (!isTrustedSameOriginRequest(req)) return res.status(403).json({ error: 'identity_origin_rejected' })
     res.setHeader('Set-Cookie', clearDeviceCookieHeader(config))
     return res.status(200).json({
       ...publicDeviceIdentityRuntime(config),
