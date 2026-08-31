@@ -7,4 +7,5 @@
 - [Persistent scout goals](SCOUT_GOALS.md) — reusable search goals, due-state, run evidence, and the authenticated-storage boundary.
 - [Anonymous device identity](DEVICE_IDENTITY.md) — signed HttpOnly device sessions and the server-only persistence namespace.
 - [Device-scoped scout cloud store](SCOUT_CLOUD_STORE.md) — optional Upstash persistence, bounded data shape, CAS conflict handling, and explicit sync UX.
+- [Daily background scout discovery](BACKGROUND_SCOUT.md) — secured Vercel cron, schedule index, discovery-only server runs, and local personalization boundary.
 - [OpenClaw-inspired direction](OPENCLAW_DIRECTION.md) — persistent career-agent control-plane roadmap.
