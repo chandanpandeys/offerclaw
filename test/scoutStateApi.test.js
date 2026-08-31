@@ -6,6 +6,7 @@ import {
   createDeviceToken,
   getDeviceIdentityConfig,
 } from '../api/_lib/deviceIdentity.js'
+import { SCOUT_SCHEDULE_INDEX_KEY } from '../api/_lib/redisStore.js'
 
 const SECRET = 'test-secret-that-is-long-enough-for-device-identity-123456'
 const REDIS_URL = 'https://redis.example'
@@ -64,6 +65,7 @@ function request(method, body = null, options = {}) {
 
 function fakeRedis() {
   const data = new Map()
+  const schedule = new Map()
   const calls = []
 
   const fetchImpl = async (_url, options) => {
@@ -73,20 +75,38 @@ function fakeRedis() {
 
     if (command[0] === 'MGET') {
       result = command.slice(1).map(key => data.has(key) ? data.get(key) : null)
-    } else if (command[0] === 'EVAL') {
+    } else if (command[0] === 'EVAL' && command.length >= 10) {
       const stateKey = command[3]
       const revisionKey = command[4]
-      const expected = Number(command[5])
-      const state = command[6]
+      const scheduleKey = command[5]
+      const expected = Number(command[6])
+      const state = command[7]
+      const member = command[8]
+      const dueScore = Number(command[9])
       const current = Number(data.get(revisionKey) || 0)
+      assert.equal(scheduleKey, SCOUT_SCHEDULE_INDEX_KEY)
       if (current !== expected) {
         result = [0, current]
       } else {
         const next = current + 1
         data.set(stateKey, state)
         data.set(revisionKey, String(next))
+        if (member) {
+          if (Number.isFinite(dueScore) && dueScore >= 0) schedule.set(member, dueScore)
+          else schedule.delete(member)
+        }
         result = [1, next]
       }
+    } else if (command[0] === 'EVAL' && command.length === 7) {
+      const stateKey = command[3]
+      const revisionKey = command[4]
+      const scheduleKey = command[5]
+      const member = command[6]
+      assert.equal(scheduleKey, SCOUT_SCHEDULE_INDEX_KEY)
+      data.delete(stateKey)
+      data.delete(revisionKey)
+      if (member) schedule.delete(member)
+      result = 1
     } else if (command[0] === 'DEL') {
       let deleted = 0
       for (const key of command.slice(1)) {
@@ -105,7 +125,7 @@ function fakeRedis() {
     }
   }
 
-  return { data, calls, fetchImpl }
+  return { data, schedule, calls, fetchImpl }
 }
 
 async function withRuntime(fn) {
@@ -134,7 +154,7 @@ test('missing device identity is rejected before Redis access', async () => {
   })
 })
 
-test('identity-scoped PUT normalizes state, then GET returns revisioned durable data', async () => {
+test('identity-scoped daily goal PUT normalizes state and atomically registers schedule', async () => {
   await withRuntime(async () => {
     const originalFetch = globalThis.fetch
     const redis = fakeRedis()
@@ -145,7 +165,16 @@ test('identity-scoped PUT normalizes state, then GET returns revisioned durable 
         expectedRevision: 0,
         state: {
           secret: 'drop-me',
-          goals: [{ id: 'goal-1', name: 'AI roles', query: 'AI Engineer', location: 'India', secret: 'drop-me' }],
+          goals: [{
+            id: 'goal-1',
+            name: 'AI roles',
+            query: 'AI Engineer',
+            location: 'India',
+            cadence: 'daily',
+            createdAt: '2026-09-01T00:00:00Z',
+            updatedAt: '2026-09-01T00:00:00Z',
+            secret: 'drop-me',
+          }],
           runs: [{
             id: 'run-1',
             goalId: 'goal-1',
@@ -162,15 +191,20 @@ test('identity-scoped PUT normalizes state, then GET returns revisioned durable 
       assert.equal(Object.hasOwn(putRes.body.state.goals[0], 'secret'), false)
       assert.equal(Object.hasOwn(putRes.body.state.runs[0].results[0], 'description'), false)
 
+      const cas = redis.calls[0]
+      const namespace = cas[8]
+      assert.match(namespace, /^offerclaw:v1:device:/)
+      assert.equal(redis.schedule.has(namespace), true)
+      assert.equal(Number.isFinite(redis.schedule.get(namespace)), true)
+
       const getRes = mockResponse()
       await handler(request('GET'), getRes)
       assert.equal(getRes.statusCode, 200)
       assert.equal(getRes.body.revision, 1)
       assert.equal(getRes.body.state.goals[0].id, 'goal-1')
-      assert.equal(redis.calls[0][0], 'EVAL')
       assert.equal(redis.calls[1][0], 'MGET')
 
-      const storageKey = redis.calls[0][3]
+      const storageKey = cas[3]
       assert.match(storageKey, /^offerclaw:v1:device:/)
       assert.equal(storageKey.includes('goal-1'), false)
     } finally {
@@ -179,7 +213,35 @@ test('identity-scoped PUT normalizes state, then GET returns revisioned durable 
   })
 })
 
-test('stale revision returns conflict instead of overwriting durable state', async () => {
+test('manual-only state removes device from schedule index', async () => {
+  await withRuntime(async () => {
+    const originalFetch = globalThis.fetch
+    const redis = fakeRedis()
+    globalThis.fetch = redis.fetchImpl
+    try {
+      const daily = mockResponse()
+      await handler(request('PUT', {
+        expectedRevision: 0,
+        state: { goals: [{ id: 'goal-1', query: 'AI Engineer', cadence: 'daily' }], runs: [] },
+      }), daily)
+      const namespace = redis.calls[0][8]
+      assert.equal(redis.schedule.has(namespace), true)
+
+      const manual = mockResponse()
+      await handler(request('PUT', {
+        expectedRevision: 1,
+        state: { goals: [{ id: 'goal-1', query: 'AI Engineer', cadence: 'manual' }], runs: [] },
+      }), manual)
+      assert.equal(manual.statusCode, 200)
+      assert.equal(redis.calls[1][9], -1)
+      assert.equal(redis.schedule.has(namespace), false)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+test('stale revision returns conflict instead of overwriting durable state or schedule', async () => {
   await withRuntime(async () => {
     const originalFetch = globalThis.fetch
     const redis = fakeRedis()
@@ -192,7 +254,7 @@ test('stale revision returns conflict instead of overwriting durable state', asy
       const stale = mockResponse()
       await handler(request('PUT', {
         expectedRevision: 0,
-        state: { goals: [{ id: 'stale', query: 'stale' }], runs: [] },
+        state: { goals: [{ id: 'stale', query: 'stale', cadence: 'daily' }], runs: [] },
       }), stale)
       assert.equal(stale.statusCode, 409)
       assert.equal(stale.body.error, 'scout_state_revision_conflict')
@@ -222,21 +284,27 @@ test('foreign-origin mutations are rejected before Redis access', async () => {
   })
 })
 
-test('DELETE clears only the verified device scout namespace', async () => {
+test('DELETE clears verified device state and schedule entry together', async () => {
   await withRuntime(async () => {
     const originalFetch = globalThis.fetch
     const redis = fakeRedis()
     globalThis.fetch = redis.fetchImpl
     try {
       const first = mockResponse()
-      await handler(request('PUT', { expectedRevision: 0, state: { goals: [], runs: [] } }), first)
+      await handler(request('PUT', {
+        expectedRevision: 0,
+        state: { goals: [{ id: 'goal-1', query: 'AI Engineer', cadence: 'daily' }], runs: [] },
+      }), first)
+      const namespace = redis.calls[0][8]
+      assert.equal(redis.schedule.has(namespace), true)
 
       const res = mockResponse()
       await handler(request('DELETE'), res)
       assert.equal(res.statusCode, 200)
       assert.equal(res.body.deleted, true)
       assert.equal(res.body.revision, 0)
-      assert.equal(redis.calls.at(-1)[0], 'DEL')
+      assert.equal(redis.calls.at(-1)[0], 'EVAL')
+      assert.equal(redis.schedule.has(namespace), false)
     } finally {
       globalThis.fetch = originalFetch
     }

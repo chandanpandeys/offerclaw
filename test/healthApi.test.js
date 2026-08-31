@@ -34,17 +34,19 @@ async function withEnv(values, fn) {
   }
 }
 
-test('health exposes only public identity and scout-store readiness', async () => {
+test('health exposes only public identity, store and discovery readiness', async () => {
   await withEnv({
     OFFERCLAW_IDENTITY_SECRET: SECRET,
     UPSTASH_REDIS_REST_URL: 'https://redis.example',
     UPSTASH_REDIS_REST_TOKEN: 'secret-token',
+    JSEARCH_API_KEY: 'jobs-secret',
+    CRON_SECRET: 'cron-secret-long-enough-123456',
   }, async () => {
     const res = mockResponse()
     handler({ method: 'GET' }, res)
 
     assert.equal(res.statusCode, 200)
-    assert.equal(res.body.version, '1.6')
+    assert.equal(res.body.version, '1.7')
     assert.equal(res.body.identity.configured, true)
     assert.equal(res.body.identity.type, 'anonymous_device')
     assert.equal(res.body.identity.profileDataInToken, false)
@@ -57,11 +59,34 @@ test('health exposes only public identity and scout-store readiness', async () =
     assert.equal(Object.hasOwn(res.body.scoutStore, 'token'), false)
     assert.equal(Object.hasOwn(res.body.scoutStore, 'url'), false)
 
+    assert.deepEqual(res.body.backgroundScout, {
+      configured: true,
+      schedule: 'daily',
+      mode: 'discovery_only',
+      personalizedServerRanking: false,
+    })
+    assert.equal(Object.hasOwn(res.body.backgroundScout, 'secret'), false)
+
     assert.equal(res.body.privacy.identityProfileDataInToken, false)
     assert.equal(res.body.privacy.scoutCloudScope, 'goals_and_compact_runs_only')
+    assert.equal(res.body.privacy.backgroundScoutProfileUpload, false)
     assert.equal(res.body.observability.identityTokenLogging, false)
     assert.equal(res.body.observability.scoutPayloadLogging, false)
+    assert.equal(res.body.observability.cronPayloadLogging, false)
     assert.equal(res.headers['cache-control'], 'no-store')
+  })
+})
+
+test('background scout readiness stays false without a sufficiently strong cron secret', async () => {
+  await withEnv({
+    UPSTASH_REDIS_REST_URL: 'https://redis.example',
+    UPSTASH_REDIS_REST_TOKEN: 'secret-token',
+    JSEARCH_API_KEY: 'jobs-secret',
+    CRON_SECRET: 'short',
+  }, async () => {
+    const res = mockResponse()
+    handler({ method: 'GET' }, res)
+    assert.equal(res.body.backgroundScout.configured, false)
   })
 })
 
