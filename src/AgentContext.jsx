@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { AgentContext } from './agentContext'
 import { evaluateApplicationPackage, snapshotJobEvidence } from './evals'
+import { buildSourceIntel } from './sourceIntel'
 
 function readJson(key, fallback) {
   try {
@@ -59,16 +60,20 @@ export function AgentProvider({ children }) {
     const packageEvaluation = appPackage
       ? evaluateApplicationPackage(appPackage, profileState)
       : null
+    const appliedAt = new Date().toISOString()
     const entry = {
       id: makeId(),
       jobTitle: job.title,
       company: job.company,
-      appliedAt: new Date().toISOString(),
+      appliedAt,
       status: 'applied',
+      statusUpdatedAt: appliedAt,
+      statusHistory: [{ status: 'applied', at: appliedAt }],
       followUpDay3: null,
       followUpDay5: null,
       url: job.url || null,
       dataSource: job.dataSource || 'unknown',
+      sourceIntel: buildSourceIntel(job),
       evidence: snapshotJobEvidence(job),
       packageSnapshot: appPackage ? {
         mode: appPackage.mode || 'unknown',
