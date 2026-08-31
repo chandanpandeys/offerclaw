@@ -19,6 +19,9 @@ export const BROWSER_DECISION = Object.freeze({
   BLOCK: 'block',
 })
 
+// Generic employer-site URLs are deliberately excluded. Unknown HTTPS hosts resolve
+// to `employer_site` elsewhere in the product, which is useful for source labeling
+// but is not strong enough evidence to grant a remote browser access to that origin.
 export const BROWSER_WRITE_CONNECTORS = Object.freeze(new Set([
   'greenhouse',
   'lever',
@@ -29,7 +32,6 @@ export const BROWSER_WRITE_CONNECTORS = Object.freeze(new Set([
   'jobvite',
   'icims',
   'bamboohr',
-  'employer_site',
 ]))
 
 const ACTION_TO_SCOPE = Object.freeze({
@@ -61,10 +63,7 @@ function scopeAllows(scope, action) {
   return Boolean(required && SCOPE_LEVEL[scope] >= SCOPE_LEVEL[required])
 }
 
-function allowedConnectorForAction(connectorId, action) {
-  if (action === BROWSER_ACTION.INSPECT_FORM) {
-    return BROWSER_WRITE_CONNECTORS.has(connectorId)
-  }
+function allowedConnectorForAction(connectorId) {
   return BROWSER_WRITE_CONNECTORS.has(connectorId)
 }
 
@@ -127,7 +126,7 @@ export function validateBrowserTask(task) {
     return { decision: BROWSER_DECISION.BLOCK, reason: 'unknown_connector' }
   }
 
-  if (!allowedConnectorForAction(task.connectorId, task.action)) {
+  if (!allowedConnectorForAction(task.connectorId)) {
     return { decision: BROWSER_DECISION.BLOCK, reason: 'connector_not_browser_write_allowed' }
   }
 
@@ -143,10 +142,6 @@ export function validateBrowserTask(task) {
   const hostname = hostnameFromUrl(task.jobUrl)
   if (!hostname) {
     return { decision: BROWSER_DECISION.BLOCK, reason: 'invalid_job_url' }
-  }
-
-  if (task.connectorId === 'linkedin' || task.connectorId === 'demo' || task.connectorId === 'unknown') {
-    return { decision: BROWSER_DECISION.BLOCK, reason: 'connector_explicitly_blocked' }
   }
 
   return {
