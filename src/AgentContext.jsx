@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { AgentContext } from './agentContext'
+import { AUTONOMY_MODE } from './autonomy'
+import { connectorSnapshot } from './connectors'
 import { evaluateApplicationPackage, snapshotJobEvidence } from './evals'
 import { buildSourceIntel } from './sourceIntel'
 
@@ -25,6 +27,8 @@ export function AgentProvider({ children }) {
   const [appPackage, setAppPackage] = useState(null)
   const [agentStatus, setAgentStatus] = useState('idle')
   const [trackerState, setTrackerState] = useState(() => readJson('offerclaw_tracker', []))
+  const [autonomyMode, setAutonomyModeState] = useState(() => localStorage.getItem('offerclaw_autonomy_mode') || AUTONOMY_MODE.SUPERVISED)
+  const [actionQueueState, setActionQueueState] = useState(() => readJson('offerclaw_action_queue', []))
   const [streak, setStreak] = useState(() => Number(localStorage.getItem('offerclaw_streak') || 0))
   const [view, setView] = useState('chat')
   const [toasts, setToasts] = useState([])
@@ -43,6 +47,38 @@ export function AgentProvider({ children }) {
       return next
     })
   }, [])
+
+  const setActionQueue = useCallback((nextOrUpdater) => {
+    setActionQueueState(previous => {
+      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(previous) : nextOrUpdater
+      const bounded = Array.isArray(next) ? next.slice(0, 60) : []
+      localStorage.setItem('offerclaw_action_queue', JSON.stringify(bounded))
+      return bounded
+    })
+  }, [])
+
+  const setAutonomyMode = useCallback((mode) => {
+    const next = Object.values(AUTONOMY_MODE).includes(mode) ? mode : AUTONOMY_MODE.SUPERVISED
+    setAutonomyModeState(next)
+    localStorage.setItem('offerclaw_autonomy_mode', next)
+  }, [])
+
+  const queueAction = useCallback((action) => {
+    const record = {
+      id: makeId(),
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      ...action,
+    }
+    setActionQueue(previous => [record, ...previous])
+    return record
+  }, [setActionQueue])
+
+  const patchAction = useCallback((id, patch) => {
+    setActionQueue(previous => previous.map(item => item.id === id
+      ? { ...item, ...patch, updatedAt: new Date().toISOString() }
+      : item))
+  }, [setActionQueue])
 
   const addMessage = useCallback((message) => {
     setMessages(previous => [...previous, { id: makeId(), ...message }])
@@ -73,6 +109,7 @@ export function AgentProvider({ children }) {
       followUpDay5: null,
       url: job.url || null,
       dataSource: job.dataSource || 'unknown',
+      connector: connectorSnapshot(job),
       sourceIntel: buildSourceIntel(job),
       evidence: snapshotJobEvidence(job),
       packageSnapshot: appPackage ? {
@@ -124,6 +161,12 @@ export function AgentProvider({ children }) {
       tracker: trackerState,
       setTracker,
       saveApplication,
+      autonomyMode,
+      setAutonomyMode,
+      actionQueue: actionQueueState,
+      setActionQueue,
+      queueAction,
+      patchAction,
       streak,
       view,
       setView,
