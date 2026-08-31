@@ -4,6 +4,17 @@ import { getJobRuntimeConfig, publicJobRuntime } from './_lib/jobSources.js'
 import { getRedisStoreConfig, publicRedisStoreRuntime } from './_lib/redisStore.js'
 import { getAiRuntimeConfig, publicAiRuntime } from './_lib/runtime.js'
 
+function publicBackgroundScoutRuntime(env, jobs, scoutStore) {
+  const cronConfigured = String(env.CRON_SECRET || '').trim().length >= 16
+  const jobRuntime = publicJobRuntime(jobs)
+  return {
+    configured: Boolean(cronConfigured && scoutStore.configured && jobRuntime.configured),
+    schedule: 'daily',
+    mode: 'discovery_only',
+    personalizedServerRanking: false,
+  }
+}
+
 export default function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET')
@@ -20,19 +31,21 @@ export default function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store')
   return res.status(200).json({
     ok: true,
-    version: '1.6',
+    version: '1.7',
     runtime: 'vercel-functions',
     ai: publicAiRuntime(ai),
     jobs: publicJobRuntime(jobs),
     browserWorker: publicBrowserWorkerRuntime(browserWorker),
     identity: publicDeviceIdentityRuntime(identity),
     scoutStore: publicRedisStoreRuntime(scoutStore),
+    backgroundScout: publicBackgroundScoutRuntime(env, jobs, scoutStore),
     privacy: {
       browserSecrets: false,
       aiStoreDisabled: true,
       gatewayZeroDataRetention: ai.providers.gateway.zeroDataRetention,
       identityProfileDataInToken: false,
       scoutCloudScope: 'goals_and_compact_runs_only',
+      backgroundScoutProfileUpload: false,
     },
     observability: {
       requestIds: true,
@@ -41,6 +54,7 @@ export default function handler(req, res) {
       browserPageLogging: false,
       identityTokenLogging: false,
       scoutPayloadLogging: false,
+      cronPayloadLogging: false,
     },
   })
 }
