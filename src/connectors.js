@@ -236,7 +236,7 @@ export function hostnameFromUrl(url) {
 }
 
 function hostMatches(hostname, pattern) {
-  return hostname === pattern || hostname.endsWith(`.${pattern}`) || hostname.includes(pattern)
+  return hostname === pattern || hostname.endsWith(`.${pattern}`)
 }
 
 export function resolveConnector(job = {}) {
