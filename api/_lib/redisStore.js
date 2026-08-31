@@ -1,3 +1,5 @@
+export const SCOUT_SCHEDULE_INDEX_KEY = 'offerclaw:v1:scout:schedule'
+
 function clean(value, max = 4_000) {
   return String(value || '').trim().slice(0, max)
 }
@@ -91,8 +93,26 @@ end
 local next = current + 1
 redis.call('SET', KEYS[1], ARGV[2])
 redis.call('SET', KEYS[2], tostring(next))
+if ARGV[3] ~= '' then
+  local score = tonumber(ARGV[4])
+  if score and score >= 0 then
+    redis.call('ZADD', KEYS[3], score, ARGV[3])
+  else
+    redis.call('ZREM', KEYS[3], ARGV[3])
+  end
+end
 return {1, next}
 `.trim()
+
+function normalizeSchedule(schedule) {
+  if (!schedule || typeof schedule !== 'object') return { member: '', dueScore: -1 }
+  const member = clean(schedule.member, 240)
+  const due = Number(schedule.dueScore)
+  return {
+    member,
+    dueScore: Number.isFinite(due) && due >= 0 ? Math.floor(due) : -1,
+  }
+}
 
 export async function compareAndSetScoutRecord(
   config,
@@ -100,19 +120,26 @@ export async function compareAndSetScoutRecord(
   revisionKey,
   expectedRevision,
   state,
-  fetchImpl = globalThis.fetch,
+  scheduleOrFetch = null,
+  maybeFetch = globalThis.fetch,
 ) {
   const expected = Number(expectedRevision)
   if (!Number.isInteger(expected) || expected < 0) throw new Error('invalid_expected_revision')
 
+  const fetchImpl = typeof scheduleOrFetch === 'function' ? scheduleOrFetch : maybeFetch
+  const schedule = normalizeSchedule(typeof scheduleOrFetch === 'function' ? null : scheduleOrFetch)
+
   const result = await redisCommand(config, [
     'EVAL',
     CAS_SCRIPT,
-    2,
+    3,
     stateKey,
     revisionKey,
+    SCOUT_SCHEDULE_INDEX_KEY,
     expected,
     JSON.stringify(state),
+    schedule.member,
+    schedule.dueScore,
   ], fetchImpl)
 
   const [written, revision] = Array.isArray(result) ? result : [0, expected]
@@ -122,7 +149,51 @@ export async function compareAndSetScoutRecord(
   }
 }
 
-export async function deleteScoutRecord(config, stateKey, revisionKey, fetchImpl = globalThis.fetch) {
-  const result = await redisCommand(config, ['DEL', stateKey, revisionKey], fetchImpl)
+const DELETE_SCRIPT = `
+redis.call('DEL', KEYS[1], KEYS[2])
+if ARGV[1] ~= '' then
+  redis.call('ZREM', KEYS[3], ARGV[1])
+end
+return 1
+`.trim()
+
+export async function deleteScoutRecord(
+  config,
+  stateKey,
+  revisionKey,
+  scheduleMemberOrFetch = '',
+  maybeFetch = globalThis.fetch,
+) {
+  const fetchImpl = typeof scheduleMemberOrFetch === 'function' ? scheduleMemberOrFetch : maybeFetch
+  const member = typeof scheduleMemberOrFetch === 'function' ? '' : clean(scheduleMemberOrFetch, 240)
+  if (!member) {
+    const result = await redisCommand(config, ['DEL', stateKey, revisionKey], fetchImpl)
+    return Number(result || 0)
+  }
+
+  const result = await redisCommand(config, [
+    'EVAL',
+    DELETE_SCRIPT,
+    3,
+    stateKey,
+    revisionKey,
+    SCOUT_SCHEDULE_INDEX_KEY,
+    member,
+  ], fetchImpl)
   return Number(result || 0)
+}
+
+export async function listDueScoutNamespaces(config, now = Date.now(), limit = 25, fetchImpl = globalThis.fetch) {
+  const score = Number(now)
+  const boundedLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 25)))
+  const result = await redisCommand(config, [
+    'ZRANGEBYSCORE',
+    SCOUT_SCHEDULE_INDEX_KEY,
+    '-inf',
+    Number.isFinite(score) ? Math.floor(score) : Date.now(),
+    'LIMIT',
+    0,
+    boundedLimit,
+  ], fetchImpl)
+  return Array.isArray(result) ? result.map(value => clean(value, 240)).filter(Boolean) : []
 }
