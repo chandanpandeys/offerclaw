@@ -6,8 +6,17 @@
     },
     "api/jobs.js": {
       "maxDuration": 20
+    },
+    "api/cron/scout.js": {
+      "maxDuration": 60
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron/scout",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
