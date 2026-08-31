@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import { ACTION, CAPABILITY, CONNECTORS, buildPeopleSearchUrl, buildPlatformJobSearchUrl, resolveConnector } from './connectors'
 import { ACTION_LABELS, AUTONOMY_MODES, DECISION, evaluateAction, modeLabel } from './autonomy'
+import {
+  buildInspectionReview,
+  createInspectionTaskForJob,
+  inspectionEligibility,
+  inspectionErrorMessage,
+  requestFormInspection,
+} from './browserReview'
 import { useAgent } from './agentContext'
 import { officialCareersSearchUrl } from './sourceIntel'
 
@@ -13,8 +20,8 @@ const shell = {
 }
 
 const drawer = {
-  width: 'min(430px, calc(100vw - 28px))',
-  maxHeight: 'min(700px, calc(100vh - 90px))',
+  width: 'min(450px, calc(100vw - 28px))',
+  maxHeight: 'min(740px, calc(100vh - 90px))',
   overflow: 'auto',
   marginBottom: 8,
   border: '1px solid var(--border)',
@@ -35,10 +42,24 @@ const CAP_LABEL = {
   [CAPABILITY.BLOCKED]: 'blocked',
 }
 
+const PLAN_LABEL = {
+  prefill: 'evidence ready',
+  review: 'review',
+  manual: 'manual',
+  unresolved: 'missing evidence',
+}
+
 function capClass(capability) {
   if (capability === CAPABILITY.NATIVE) return 'badge-green'
   if (capability === CAPABILITY.HANDOFF || capability === CAPABILITY.APPROVAL) return 'badge-yellow'
   if (capability === CAPABILITY.BLOCKED) return 'badge-red'
+  return ''
+}
+
+function decisionClass(decision) {
+  if (decision === 'prefill') return 'badge-green'
+  if (decision === 'review') return 'badge-yellow'
+  if (decision === 'manual') return 'badge-red'
   return ''
 }
 
@@ -48,6 +69,15 @@ function CapabilityRow({ connector, action }) {
     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, padding: '5px 0' }}>
       <span className="text-muted text-xs">{ACTION_LABELS[action]}</span>
       <span className={`badge ${capClass(capability)}`} style={{ fontSize: 8 }}>{CAP_LABEL[capability] || capability}</span>
+    </div>
+  )
+}
+
+function PlanMetric({ value, label }) {
+  return (
+    <div style={{ border: '1px solid var(--border)', padding: '7px 5px', textAlign: 'center', background: 'var(--bg-2)' }}>
+      <div style={{ fontSize: 15 }}>{value}</div>
+      <div className="text-muted" style={{ fontSize: 7.5, marginTop: 2 }}>{label}</div>
     </div>
   )
 }
@@ -64,7 +94,17 @@ export default function CommandCenter() {
     addToast,
   } = useAgent()
   const [open, setOpen] = useState(false)
+  const [inspectionState, setInspectionState] = useState({
+    jobId: null,
+    status: 'idle',
+    review: null,
+    error: null,
+    requestId: null,
+  })
+
   const selectedConnector = useMemo(() => selectedJob ? resolveConnector(selectedJob) : null, [selectedJob])
+  const inspection = useMemo(() => selectedJob ? inspectionEligibility(selectedJob) : null, [selectedJob])
+  const currentInspection = selectedJob && inspectionState.jobId === selectedJob.id ? inspectionState : null
   const pending = actionQueue.filter(item => item.status === 'pending')
 
   const enqueue = ({ action, connector, title, url }) => {
@@ -157,6 +197,46 @@ export default function CommandCenter() {
     })
   }
 
+  const inspectSelectedForm = async () => {
+    if (!selectedJob) return
+    const { task, eligibility } = createInspectionTaskForJob(selectedJob)
+    if (!task) {
+      addToast(`Read-only form inspection is not live for ${eligibility.connectorId || 'this source'} yet.`, 'info')
+      return
+    }
+
+    setInspectionState({
+      jobId: selectedJob.id,
+      status: 'loading',
+      review: null,
+      error: null,
+      requestId: null,
+    })
+
+    try {
+      const result = await requestFormInspection(task)
+      const review = buildInspectionReview(result.inspection, { profile: profile || {}, job: selectedJob })
+      setInspectionState({
+        jobId: selectedJob.id,
+        status: 'success',
+        review,
+        error: null,
+        requestId: result.requestId,
+      })
+      addToast(`Inspected ${review.plan.summary.total} form fields without writing to the page`, 'success')
+    } catch (error) {
+      const message = inspectionErrorMessage(error)
+      setInspectionState({
+        jobId: selectedJob.id,
+        status: 'error',
+        review: null,
+        error: message,
+        requestId: error?.requestId || null,
+      })
+      addToast(message, 'error')
+    }
+  }
+
   return (
     <div style={shell}>
       {open && (
@@ -224,10 +304,101 @@ export default function CommandCenter() {
                   <button type="button" className="btn btn-ghost" onClick={queueVerification}>Verify</button>
                   <button type="button" className="btn btn-primary" onClick={queueApply} disabled={!selectedJob.url}>Queue apply handoff</button>
                   <button type="button" className="btn btn-ghost" onClick={queuePeopleSearch}>Find human</button>
+                  {inspection?.eligible && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={inspectSelectedForm}
+                      disabled={currentInspection?.status === 'loading'}
+                    >
+                      {currentInspection?.status === 'loading' ? 'Inspecting…' : 'Inspect form'}
+                    </button>
+                  )}
                 </div>
+                {inspection && !inspection.eligible && ['greenhouse', 'lever', 'ashby'].includes(selectedConnector.id) && (
+                  <div className="text-muted text-xs" style={{ marginTop: 7 }}>
+                    Inspection requires a recognized public ATS application URL.
+                  </div>
+                )}
               </>
             )}
           </div>
+
+          {selectedJob && inspection?.eligible && (
+            <div style={section}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div className="field-label" style={{ flex: 1 }}>Application form review</div>
+                <span className="badge badge-green">READ ONLY</span>
+              </div>
+              <div className="text-muted text-xs" style={{ lineHeight: 1.55, marginTop: 6 }}>
+                The worker inspects form structure only. Candidate evidence stays in this browser and no form field is changed.
+              </div>
+
+              {!currentInspection && (
+                <button type="button" className="btn btn-ghost" onClick={inspectSelectedForm} style={{ marginTop: 8 }}>
+                  Inspect application form
+                </button>
+              )}
+
+              {currentInspection?.status === 'loading' && (
+                <div className="text-muted text-xs" style={{ marginTop: 8 }}>Opening an isolated read-only browser context…</div>
+              )}
+
+              {currentInspection?.status === 'error' && (
+                <div style={{ marginTop: 8 }}>
+                  <div className="text-xs" style={{ color: 'var(--red)', lineHeight: 1.55 }}>{currentInspection.error}</div>
+                  {currentInspection.requestId && <div className="text-muted text-xs" style={{ marginTop: 4 }}>Request: {currentInspection.requestId}</div>}
+                  <button type="button" className="btn btn-ghost" onClick={inspectSelectedForm} style={{ marginTop: 7 }}>Retry inspection</button>
+                </div>
+              )}
+
+              {currentInspection?.status === 'success' && currentInspection.review && (() => {
+                const { review } = currentInspection
+                const { summary } = review.plan
+                const checkpoints = Object.entries(review.checkpoints).filter(([, detected]) => detected)
+                return (
+                  <div style={{ marginTop: 9 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
+                      <PlanMetric value={summary.prefill} label="EVIDENCE READY" />
+                      <PlanMetric value={summary.review} label="REVIEW" />
+                      <PlanMetric value={summary.manual} label="MANUAL" />
+                      <PlanMetric value={summary.unresolved} label="MISSING" />
+                    </div>
+                    <div className="text-muted text-xs" style={{ marginTop: 7 }}>
+                      {summary.total} fields · worker {review.metadata.workerVersion || 'unknown'} · submission remains disabled
+                    </div>
+
+                    {checkpoints.length > 0 && (
+                      <div style={{ marginTop: 8, padding: 8, border: '1px solid var(--border)', color: 'var(--yellow)', fontSize: 9 }}>
+                        Manual checkpoint detected: {checkpoints.map(([name]) => name.replace('Detected', '')).join(', ')}
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: 8 }}>
+                      {review.plan.fields.slice(0, 12).map(field => (
+                        <div key={`${field.index}-${field.key}`} style={{ padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{field.label}</span>
+                            <span className={`badge ${decisionClass(field.decision)}`} style={{ fontSize: 8 }}>
+                              {PLAN_LABEL[field.decision] || field.decision}
+                            </span>
+                          </div>
+                          <div className="text-muted" style={{ fontSize: 8.5, marginTop: 3 }}>
+                            {field.kind} · {field.evidenceSource || field.reason}
+                          </div>
+                        </div>
+                      ))}
+                      {review.plan.fields.length > 12 && (
+                        <div className="text-muted text-xs" style={{ marginTop: 7 }}>+ {review.plan.fields.length - 12} more fields in this form</div>
+                      )}
+                    </div>
+
+                    <button type="button" className="btn btn-ghost" onClick={inspectSelectedForm} style={{ marginTop: 8 }}>Re-inspect</button>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
 
           <div style={{ ...section, borderBottom: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
