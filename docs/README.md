@@ -6,4 +6,5 @@
 - [Browser worker gateway](BROWSER_GATEWAY.md) — inspection-only server boundary for a dedicated remote browser worker.
 - [Persistent scout goals](SCOUT_GOALS.md) — reusable search goals, due-state, run evidence, and the authenticated-storage boundary.
 - [Anonymous device identity](DEVICE_IDENTITY.md) — signed HttpOnly device sessions and the server-only persistence namespace.
+- [Device-scoped scout cloud store](SCOUT_CLOUD_STORE.md) — optional Upstash persistence, bounded data shape, CAS conflict handling, and explicit sync UX.
 - [OpenClaw-inspired direction](OPENCLAW_DIRECTION.md) — persistent career-agent control-plane roadmap.
