@@ -33,6 +33,19 @@ test('LinkedIn browser write tasks remain blocked', () => {
   assert.equal(validateBrowserTask(task).decision, BROWSER_DECISION.BLOCK)
 })
 
+test('generic employer-site labels do not grant arbitrary remote browser access', () => {
+  const task = createBrowserTask({
+    connectorId: 'employer_site',
+    action: BROWSER_ACTION.INSPECT_FORM,
+    jobUrl: 'https://careers.example.com/jobs/123',
+    approvalScope: APPROVAL_SCOPE.INSPECT_ONLY,
+  })
+
+  const result = validateBrowserTask(task)
+  assert.equal(result.decision, BROWSER_DECISION.BLOCK)
+  assert.equal(result.reason, 'connector_not_browser_write_allowed')
+})
+
 test('rejects non-HTTPS browser targets', () => {
   const task = createBrowserTask({
     connectorId: 'lever',
