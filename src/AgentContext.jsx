@@ -19,6 +19,15 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function persistBoundedList(setState, storageKey, maxItems, nextOrUpdater) {
+  setState(previous => {
+    const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(previous) : nextOrUpdater
+    const bounded = Array.isArray(next) ? next.slice(0, maxItems) : []
+    localStorage.setItem(storageKey, JSON.stringify(bounded))
+    return bounded
+  })
+}
+
 export function AgentProvider({ children }) {
   const [profileState, setProfileState] = useState(() => readJson('offerclaw_profile', null))
   const [messages, setMessages] = useState([])
@@ -29,6 +38,8 @@ export function AgentProvider({ children }) {
   const [trackerState, setTrackerState] = useState(() => readJson('offerclaw_tracker', []))
   const [autonomyMode, setAutonomyModeState] = useState(() => localStorage.getItem('offerclaw_autonomy_mode') || AUTONOMY_MODE.SUPERVISED)
   const [actionQueueState, setActionQueueState] = useState(() => readJson('offerclaw_action_queue', []))
+  const [scoutGoalsState, setScoutGoalsState] = useState(() => readJson('offerclaw_scout_goals', []))
+  const [scoutRunsState, setScoutRunsState] = useState(() => readJson('offerclaw_scout_runs', []))
   const [streak, setStreak] = useState(() => Number(localStorage.getItem('offerclaw_streak') || 0))
   const [view, setView] = useState('chat')
   const [toasts, setToasts] = useState([])
@@ -41,20 +52,19 @@ export function AgentProvider({ children }) {
   }, [])
 
   const setTracker = useCallback((nextOrUpdater) => {
-    setTrackerState(previous => {
-      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(previous) : nextOrUpdater
-      localStorage.setItem('offerclaw_tracker', JSON.stringify(next))
-      return next
-    })
+    persistBoundedList(setTrackerState, 'offerclaw_tracker', 500, nextOrUpdater)
   }, [])
 
   const setActionQueue = useCallback((nextOrUpdater) => {
-    setActionQueueState(previous => {
-      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(previous) : nextOrUpdater
-      const bounded = Array.isArray(next) ? next.slice(0, 60) : []
-      localStorage.setItem('offerclaw_action_queue', JSON.stringify(bounded))
-      return bounded
-    })
+    persistBoundedList(setActionQueueState, 'offerclaw_action_queue', 60, nextOrUpdater)
+  }, [])
+
+  const setScoutGoals = useCallback((nextOrUpdater) => {
+    persistBoundedList(setScoutGoalsState, 'offerclaw_scout_goals', 12, nextOrUpdater)
+  }, [])
+
+  const setScoutRuns = useCallback((nextOrUpdater) => {
+    persistBoundedList(setScoutRunsState, 'offerclaw_scout_runs', 40, nextOrUpdater)
   }, [])
 
   const setAutonomyMode = useCallback((mode) => {
@@ -167,6 +177,10 @@ export function AgentProvider({ children }) {
       setActionQueue,
       queueAction,
       patchAction,
+      scoutGoals: scoutGoalsState,
+      setScoutGoals,
+      scoutRuns: scoutRunsState,
+      setScoutRuns,
       streak,
       view,
       setView,
