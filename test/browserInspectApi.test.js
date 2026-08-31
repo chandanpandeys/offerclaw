@@ -16,18 +16,19 @@ function mockResponse() {
 }
 
 async function withEnv(values, fn) {
+  const env = globalThis.process.env
   const previous = {}
   for (const [key, value] of Object.entries(values)) {
-    previous[key] = process.env[key]
-    if (value == null) delete process.env[key]
-    else process.env[key] = value
+    previous[key] = env[key]
+    if (value == null) delete env[key]
+    else env[key] = value
   }
   try {
     return await fn()
   } finally {
     for (const [key, value] of Object.entries(previous)) {
-      if (value == null) delete process.env[key]
-      else process.env[key] = value
+      if (value == null) delete env[key]
+      else env[key] = value
     }
   }
 }
