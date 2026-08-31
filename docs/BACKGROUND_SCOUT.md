@@ -1,0 +1,98 @@
+# Daily background scout discovery
+
+OfferClaw can run the first truly background scout while the browser is closed, but this layer is intentionally **discovery-only**.
+
+The server has a synced scout goal's role/query, location, freshness window, cadence, and max-result bound. It does **not** have the user's local profile, skills, resume, application tracker, generated drafts, salary preference, or work-authorization evidence. Therefore a server cron result must never be presented as a personalized match score.
+
+## Schedule
+
+`vercel.json` registers one production cron:
+
+```text
+/api/cron/scout
+0 3 * * *
+```
+
+That is one daily invocation at 03:00 UTC. The endpoint accepts only `GET` and requires Vercel's `Authorization: Bearer <CRON_SECRET>` header.
+
+`CRON_SECRET` must be configured server-side and is never returned by the health endpoint.
+
+## How a device becomes scheduled
+
+A device is not enrolled just because a local goal says `daily`.
+
+1. The user explicitly syncs Scout Center cloud state.
+2. `/api/scout/state` verifies the HttpOnly anonymous device cookie.
+3. The server normalizes the state and finds the earliest enabled daily goal due time.
+4. The same Redis Lua transaction that writes state/revision adds or removes the random device namespace in the global sorted schedule index.
+5. Unsynced local edits do not change the server schedule.
+
+The schedule index stores only random device namespaces and due timestamps. It does not contain role names, locations, companies, email addresses, or candidate profile data.
+
+## Cron work bounds
+
+Each invocation is intentionally bounded:
+
+- at most 10 due device namespaces
+- at most 3 due daily goals per device
+- device processing concurrency of 2
+- the existing bounded job-source result limits
+
+Invalid/missing state entries are removed from the schedule index. A CAS conflict is not overwritten.
+
+## Discovery sources
+
+Background discovery reuses the configured server job-source contracts:
+
+- JSearch when configured
+- configured public Greenhouse feeds
+- configured public Lever feeds
+- configured public Ashby feeds
+
+Only the scout goal's role/query, location and freshness are used for discovery.
+
+## Stored background result shape
+
+A successful background run is tagged:
+
+```text
+mode: background_discovery
+personalized: false
+```
+
+Each compact result may retain:
+
+- job ID
+- title
+- company
+- location
+- application URL
+- posting age
+- provider/source
+
+`matchScore` is forced to `null`. Full job descriptions are not persisted by the scout-state schema.
+
+When the user next chooses `Sync now`, these background discoveries merge into the browser's scout history. They are shown as **candidates**, not matches. Personalized evaluation can happen later in the browser where the local candidate profile is available.
+
+## What the cron never does
+
+The cron does not:
+
+- upload or read the local resume/profile
+- generate application content
+- inspect application forms
+- fill fields
+- submit applications
+- contact recruiters
+- solve CAPTCHA/2FA
+- assign personalized match scores
+
+Those remain separate capabilities with their existing review/approval boundaries.
+
+## Logging and response privacy
+
+The cron response contains counts/status metadata only. It does not return device namespaces, queries, companies, or discovered job titles. Top-level error logging records only an error name.
+
+## Current delivery model
+
+Background discoveries are persisted for later explicit browser sync. This PR does not yet send email, push, SMS, Slack, or other notifications.
