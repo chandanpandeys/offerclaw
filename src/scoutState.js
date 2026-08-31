@@ -1,8 +1,13 @@
-import { createScoutGoal } from './scoutGoals.js'
+import { createScoutGoal, nextScoutDueAt } from './scoutGoals.js'
 
 export const SCOUT_STATE_VERSION = 1
 export const MAX_SCOUT_GOALS = 12
 export const MAX_SCOUT_RUNS = 40
+
+export const SCOUT_RUN_MODE = Object.freeze({
+  INTERACTIVE: 'interactive_ranked',
+  BACKGROUND: 'background_discovery',
+})
 
 function clean(value, max = 240) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -30,15 +35,17 @@ function normalizeSourceCounts(value) {
   return output
 }
 
-function normalizeResult(result = {}) {
+function normalizeResult(result = {}, mode = SCOUT_RUN_MODE.INTERACTIVE) {
   return {
     id: clean(result.id, 180) || null,
     title: clean(result.title, 180),
     company: clean(result.company, 180),
     location: clean(result.location, 160),
     url: clean(result.url, 2_000) || null,
-    matchScore: boundedNumber(result.matchScore, 0, 0, 100),
-    postedHoursAgo: boundedNumber(result.postedHoursAgo, 0, 0, 100_000),
+    matchScore: mode === SCOUT_RUN_MODE.BACKGROUND
+      ? null
+      : boundedNumber(result.matchScore, 0, 0, 100),
+    postedHoursAgo: boundedNumber(result.postedHoursAgo, 72, 0, 100_000),
     source: clean(result.source, 80) || 'unknown',
     dataSource: clean(result.dataSource, 80) || 'unknown',
   }
@@ -46,11 +53,18 @@ function normalizeResult(result = {}) {
 
 export function normalizeScoutRun(run = {}, now = new Date()) {
   const ranAt = iso(run.ranAt, iso(now))
-  const results = Array.isArray(run.results) ? run.results.slice(0, 12).map(normalizeResult) : []
+  const mode = Object.values(SCOUT_RUN_MODE).includes(run.mode)
+    ? run.mode
+    : SCOUT_RUN_MODE.INTERACTIVE
+  const results = Array.isArray(run.results)
+    ? run.results.slice(0, 12).map(result => normalizeResult(result, mode))
+    : []
 
   return {
     id: clean(run.id, 180) || `run-${ranAt}`,
     version: 1,
+    mode,
+    personalized: mode === SCOUT_RUN_MODE.INTERACTIVE,
     goalId: clean(run.goalId, 180) || null,
     goalName: clean(run.goalName, 100) || 'Saved scout',
     ranAt,
@@ -101,6 +115,18 @@ export function normalizeScoutState(input = {}, now = new Date()) {
     goals: normalizeGoals(input.goals, now),
     runs: normalizeRuns(input.runs, now),
   }
+}
+
+export function nextScoutStateDueAt(stateInput = {}) {
+  const state = normalizeScoutState(stateInput, stateInput.updatedAt || new Date())
+  const dueTimes = state.goals
+    .map(goal => nextScoutDueAt(goal))
+    .filter(Boolean)
+    .map(value => new Date(value).getTime())
+    .filter(Number.isFinite)
+
+  if (!dueTimes.length) return null
+  return new Date(Math.min(...dueTimes)).toISOString()
 }
 
 export function mergeScoutStates(localInput = {}, remoteInput = {}, now = new Date()) {
