@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import {
   MAX_SCOUT_GOALS,
   MAX_SCOUT_RUNS,
+  SCOUT_RUN_MODE,
   mergeScoutStates,
+  nextScoutStateDueAt,
   normalizeScoutRun,
   normalizeScoutState,
 } from '../src/scoutState.js'
@@ -38,7 +40,7 @@ test('durable scout state is bounded and strips unknown data', () => {
   assert.equal(Object.hasOwn(state.runs[0].results[0], 'rawDescription'), false)
 })
 
-test('run normalization keeps compact result evidence only', () => {
+test('interactive run normalization keeps compact result evidence only', () => {
   const run = normalizeScoutRun({
     id: 'run-1',
     goalId: 'goal-1',
@@ -60,8 +62,67 @@ test('run normalization keeps compact result evidence only', () => {
     }],
   }, NOW)
 
+  assert.equal(run.mode, SCOUT_RUN_MODE.INTERACTIVE)
+  assert.equal(run.personalized, true)
+  assert.equal(run.results[0].matchScore, 88)
   assert.equal(run.results[0].title, 'AI Engineer')
   assert.equal(Object.hasOwn(run.results[0], 'description'), false)
+})
+
+test('background discovery can never retain a personalized match score', () => {
+  const run = normalizeScoutRun({
+    id: 'run-bg',
+    mode: SCOUT_RUN_MODE.BACKGROUND,
+    goalId: 'goal-1',
+    goalName: 'AI roles',
+    ranAt: NOW.toISOString(),
+    results: [{
+      title: 'AI Engineer',
+      company: 'Example',
+      matchScore: 99,
+      postedHoursAgo: 3,
+      source: 'jsearch',
+      dataSource: 'live',
+    }],
+  }, NOW)
+
+  assert.equal(run.mode, SCOUT_RUN_MODE.BACKGROUND)
+  assert.equal(run.personalized, false)
+  assert.equal(run.results[0].matchScore, null)
+})
+
+test('state due time uses the earliest enabled daily goal and ignores manual goals', () => {
+  const state = {
+    goals: [
+      {
+        id: 'manual',
+        query: 'Manual',
+        cadence: 'manual',
+        createdAt: '2026-08-20T00:00:00Z',
+        updatedAt: '2026-08-20T00:00:00Z',
+      },
+      {
+        id: 'daily-later',
+        query: 'Later',
+        cadence: 'daily',
+        createdAt: '2026-08-31T10:00:00Z',
+        updatedAt: '2026-08-31T10:00:00Z',
+        lastRunAt: '2026-08-31T10:00:00Z',
+      },
+      {
+        id: 'daily-earlier',
+        query: 'Earlier',
+        cadence: 'daily',
+        createdAt: '2026-08-31T02:00:00Z',
+        updatedAt: '2026-08-31T02:00:00Z',
+        lastRunAt: '2026-08-31T02:00:00Z',
+      },
+    ],
+    runs: [],
+  }
+
+  assert.equal(nextScoutStateDueAt(state), '2026-09-01T02:00:00.000Z')
+  assert.equal(nextScoutStateDueAt({ goals: [{ id: 'manual', query: 'Only', cadence: 'manual' }] }), null)
 })
 
 test('state merge keeps the newer goal version and unions run history', () => {
