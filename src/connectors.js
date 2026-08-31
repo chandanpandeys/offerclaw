@@ -39,13 +39,18 @@ function connector(config) {
   })
 }
 
+const PUBLIC_FEED_CAPABILITIES = {
+  [ACTION.SEARCH_JOBS]: CAPABILITY.NATIVE,
+  [ACTION.READ_JOB]: CAPABILITY.NATIVE,
+}
+
 export const CONNECTORS = Object.freeze({
   jsearch: connector({
     id: 'jsearch',
     name: 'JSearch',
     kind: 'aggregator',
     status: 'connected_when_configured',
-    note: 'Current server-side discovery provider. Apply actions hand off to the destination returned by the listing.',
+    note: 'Server-side discovery provider. Apply actions hand off to the destination returned by the listing.',
     capabilities: {
       [ACTION.SEARCH_JOBS]: CAPABILITY.NATIVE,
       [ACTION.READ_JOB]: CAPABILITY.NATIVE,
@@ -109,15 +114,19 @@ export const CONNECTORS = Object.freeze({
     id: 'greenhouse',
     name: 'Greenhouse',
     kind: 'ats',
-    status: 'browser_worker_candidate',
-    hosts: ['greenhouse.io', 'boards.greenhouse.io'],
+    status: 'public_feed_when_configured',
+    hosts: ['greenhouse.io', 'boards.greenhouse.io', 'job-boards.greenhouse.io'],
+    note: 'Official public Job Board API supports read-only discovery when a board token is configured. Application actions remain separate.',
+    capabilities: PUBLIC_FEED_CAPABILITIES,
   }),
   lever: connector({
     id: 'lever',
     name: 'Lever',
     kind: 'ats',
-    status: 'browser_worker_candidate',
+    status: 'public_feed_when_configured',
     hosts: ['lever.co', 'jobs.lever.co'],
+    note: 'Official public Postings API supports read-only discovery when a site is configured. Application submission is not enabled.',
+    capabilities: PUBLIC_FEED_CAPABILITIES,
   }),
   workday: connector({
     id: 'workday',
@@ -130,8 +139,10 @@ export const CONNECTORS = Object.freeze({
     id: 'ashby',
     name: 'Ashby',
     kind: 'ats',
-    status: 'browser_worker_candidate',
+    status: 'public_feed_when_configured',
     hosts: ['ashbyhq.com'],
+    note: 'Official public Job Postings API supports listed read-only jobs when a board name is configured.',
+    capabilities: PUBLIC_FEED_CAPABILITIES,
   }),
   smartrecruiters: connector({
     id: 'smartrecruiters',
