@@ -47,7 +47,7 @@ A broad scope cannot make a blocked connector writable. Connector policy remains
 
 ## Connector allowlist
 
-Browser-write candidates are currently limited to ATS/employer destinations whose connector contracts are explicitly allowlisted:
+The initial browser allowlist is deliberately limited to recognizable ATS hostname families:
 
 - Greenhouse
 - Lever
@@ -58,9 +58,10 @@ Browser-write candidates are currently limited to ATS/employer destinations whos
 - Jobvite
 - iCIMS
 - BambooHR
-- likely employer-controlled careers sites
 
-LinkedIn, demo data, and unknown destinations are not browser-write targets.
+LinkedIn, demo data, unknown destinations, and generic `employer_site` destinations are not browser-worker targets.
+
+The generic employer-site exclusion is intentional: OfferClaw uses `employer_site` as a heuristic label for unknown non-board domains, which is useful for source intelligence but is not enough evidence to grant a remote browser access to arbitrary origins. A future employer-site worker path requires an explicit verified-domain mechanism.
 
 A task is rejected when:
 
@@ -171,15 +172,14 @@ AI-assisted recovery (for example Stagehand-style observe/act/extract behavior) 
 
 ## Runtime direction
 
-A long-lived browser session is likely better isolated in a dedicated browser-worker service or managed remote browser than embedded into short Vercel request handlers.
+A long-lived browser session is better isolated in a dedicated browser-worker service or managed remote browser than embedded into short Vercel request handlers.
 
-The service should expose a narrow API accepting only validated browser tasks, return structured inspection/form-plan results, and maintain short-lived session identifiers rather than exposing browser control directly to the frontend.
+The main OfferClaw API exposes an inspection-only gateway described in [BROWSER_GATEWAY.md](BROWSER_GATEWAY.md). The worker service stays behind server-side authentication and returns bounded field metadata rather than raw browser control.
 
 ## Next implementation
 
-1. Define the server-side browser-worker request/response API.
-2. Add an inspection-only Playwright executor for allowlisted ATS URLs.
-3. Return accessibility/DOM-derived field metadata without candidate data first.
-4. Run the form planner and show the complete review plan in the Agent Command Center.
-5. Add a prefill-only executor after inspection security tests pass.
-6. Keep final submission as a separate explicit action and approval record.
+1. Implement a dedicated inspection-only Playwright worker for allowlisted ATS URLs.
+2. Return accessibility/DOM-derived field metadata without candidate data first.
+3. Run the form planner and show the complete review plan in the Agent Command Center.
+4. Add a prefill-only executor after inspection security tests pass.
+5. Keep final submission as a separate explicit action and approval record.
