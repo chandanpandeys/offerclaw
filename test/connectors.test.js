@@ -26,6 +26,11 @@ test('resolves job boards separately from ATS and employer sites', () => {
   assert.equal(resolveConnector({ url: 'https://careers.example.com/jobs/123' }).id, 'employer_site')
 })
 
+test('hostname substring spoofing never inherits a trusted connector', () => {
+  assert.equal(resolveConnector({ url: 'https://greenhouse.io.evil.example/jobs/123' }).id, 'employer_site')
+  assert.equal(resolveConnector({ url: 'https://linkedin.com.evil.example/jobs/123' }).id, 'employer_site')
+})
+
 test('demo jobs never expose external application actions', () => {
   const demo = resolveConnector({ dataSource: 'demo', url: 'https://example.com' })
   assert.equal(demo.id, 'demo')
