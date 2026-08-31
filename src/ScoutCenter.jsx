@@ -45,8 +45,13 @@ function formatDue(goal) {
   return `due in ${hours}h`
 }
 
+function backgroundRun(run) {
+  return run?.mode === 'background_discovery' || run?.personalized === false
+}
+
 function runSummary(run) {
   if (!run) return 'never run'
+  if (backgroundRun(run)) return `${run.resultCount} background candidates`
   if (run.demoCount && !run.liveCount) return `${run.resultCount} demo matches`
   return `${run.resultCount} matches · ${run.liveCount} live`
 }
@@ -228,7 +233,7 @@ export default function ScoutCenter() {
                   </select>
                 </label>
                 <div className="text-muted text-xs" style={{ lineHeight: 1.5 }}>
-                  Already-applied roles are excluded by default. Daily cadence can be synced as durable device state, but background execution is still disabled until the scheduler layer exists.
+                  Already-applied roles are excluded from interactive scouts by default. Synced daily goals can run discovery in the background, but personal match scoring still happens only when your local profile is available.
                 </div>
                 <button type="button" className="btn btn-primary" onClick={saveGoal}>Save scout goal</button>
               </div>
@@ -246,7 +251,7 @@ export default function ScoutCenter() {
               <span className={`badge ${cloudLinked ? 'badge-green' : ''}`}>{cloudLinked ? 'linked' : 'local only'}</span>
             </div>
             <div className="text-muted" style={{ fontSize: 8.5, marginTop: 6, lineHeight: 1.5 }}>
-              Sync is explicit in this release; edits are not uploaded automatically. {cloudRevision != null ? `Cloud revision ${cloudRevision}.` : ''}
+              Sync is explicit. The daily scheduler uses only the last synced daily goals; unsynced edits remain local. Background results are unranked candidates until this browser scores them against your profile. {cloudRevision != null ? `Cloud revision ${cloudRevision}.` : ''}
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               <button type="button" className="btn btn-primary" onClick={syncCloud} disabled={Boolean(cloudBusy)}>
@@ -297,10 +302,12 @@ export default function ScoutCenter() {
               <div key={run.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', gap: 7 }}>
                   <span style={{ flex: 1 }}>{run.goalName}</span>
-                  <span className="badge">{run.resultCount} matches</span>
+                  <span className={`badge ${backgroundRun(run) ? 'badge-yellow' : ''}`}>
+                    {run.resultCount} {backgroundRun(run) ? 'candidates' : 'matches'}
+                  </span>
                 </div>
                 <div className="text-muted" style={{ fontSize: 8.5, marginTop: 3 }}>
-                  {new Date(run.ranAt).toLocaleString()} · {run.liveCount} live · {run.demoCount} demo
+                  {new Date(run.ranAt).toLocaleString()} · {backgroundRun(run) ? 'background discovery · not personalized' : `${run.liveCount} live · ${run.demoCount} demo`}
                 </div>
               </div>
             ))}
