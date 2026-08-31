@@ -133,6 +133,27 @@ export function parseCookies(header = '') {
   return output
 }
 
+function requestHost(req) {
+  const forwarded = clean(req?.headers?.['x-forwarded-host'], 500).split(',')[0].trim()
+  return forwarded || clean(req?.headers?.host, 500)
+}
+
+export function isTrustedSameOriginRequest(req) {
+  const origin = clean(req?.headers?.origin, 2_000)
+  if (!origin) return true
+
+  const host = requestHost(req)
+  if (!host) return false
+
+  try {
+    const parsed = new URL(origin)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false
+    return parsed.host.toLowerCase() === host.toLowerCase()
+  } catch {
+    return false
+  }
+}
+
 export function identityFromRequest(req, config, now = Date.now()) {
   const cookies = parseCookies(req?.headers?.cookie || '')
   const token = cookies[config?.cookieName || DEVICE_COOKIE_NAME] || ''
