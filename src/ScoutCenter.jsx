@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { skillJobScout } from './agent'
 import { useAgent } from './agentContext'
+import { deleteScoutCloudState, syncScoutCloudState } from './scoutCloud'
 import {
   SCOUT_CADENCE,
   SCOUT_FRESHNESS,
@@ -50,6 +51,14 @@ function runSummary(run) {
   return `${run.resultCount} matches · ${run.liveCount} live`
 }
 
+function cloudFailureMessage(error) {
+  if (error?.code === 'identity_not_configured') return 'Device identity is not configured on this deployment.'
+  if (error?.code === 'scout_store_not_configured') return 'Durable scout storage is not configured on this deployment.'
+  if (error?.code === 'device_identity_required') return 'Device session could not be established.'
+  if (error?.code === 'scout_state_origin_rejected') return 'Scout sync was rejected by the same-origin safety check.'
+  return 'Scout cloud sync failed. Local state was not deleted.'
+}
+
 export default function ScoutCenter() {
   const {
     profile,
@@ -70,6 +79,9 @@ export default function ScoutCenter() {
   const [minMatch, setMinMatch] = useState(70)
   const [freshnessHours, setFreshnessHours] = useState(SCOUT_FRESHNESS.THREE_DAYS)
   const [cadence, setCadence] = useState(SCOUT_CADENCE.MANUAL)
+  const [cloudLinked, setCloudLinked] = useState(() => localStorage.getItem('offerclaw_scout_cloud_linked') === 'true')
+  const [cloudBusy, setCloudBusy] = useState(null)
+  const [cloudRevision, setCloudRevision] = useState(null)
 
   const latestRunByGoal = useMemo(() => {
     const map = new Map()
@@ -129,6 +141,43 @@ export default function ScoutCenter() {
     }
   }
 
+  const syncCloud = async () => {
+    if (cloudBusy) return
+    setCloudBusy('sync')
+    try {
+      const result = await syncScoutCloudState({ goals: scoutGoals, runs: scoutRuns })
+      setScoutGoals(result.merged.goals)
+      setScoutRuns(result.merged.runs)
+      localStorage.setItem('offerclaw_scout_cloud_linked', 'true')
+      setCloudLinked(true)
+      setCloudRevision(result.revision)
+      addToast(result.conflictResolved ? 'Scout cloud conflict merged and synced' : 'Scout cloud copy synced', 'success')
+    } catch (error) {
+      addToast(cloudFailureMessage(error), 'error')
+    } finally {
+      setCloudBusy(null)
+    }
+  }
+
+  const removeCloud = async () => {
+    if (cloudBusy) return
+    const confirmed = globalThis.confirm?.('Remove the device cloud copy? Local scout goals and run history will stay in this browser.')
+    if (confirmed === false) return
+
+    setCloudBusy('delete')
+    try {
+      await deleteScoutCloudState()
+      localStorage.removeItem('offerclaw_scout_cloud_linked')
+      setCloudLinked(false)
+      setCloudRevision(0)
+      addToast('Device cloud copy removed; local scouts kept', 'success')
+    } catch (error) {
+      addToast(cloudFailureMessage(error), 'error')
+    } finally {
+      setCloudBusy(null)
+    }
+  }
+
   return (
     <div style={shell}>
       {open && (
@@ -179,11 +228,36 @@ export default function ScoutCenter() {
                   </select>
                 </label>
                 <div className="text-muted text-xs" style={{ lineHeight: 1.5 }}>
-                  Already-applied roles are excluded by default. Daily cadence is stored now; true background execution waits for authenticated durable server state.
+                  Already-applied roles are excluded by default. Daily cadence can be synced as durable device state, but background execution is still disabled until the scheduler layer exists.
                 </div>
                 <button type="button" className="btn btn-primary" onClick={saveGoal}>Save scout goal</button>
               </div>
             )}
+          </div>
+
+          <div style={section}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ flex: 1 }}>
+                <div className="field-label">Device cloud copy</div>
+                <div className="text-muted text-xs" style={{ marginTop: 4, lineHeight: 1.5 }}>
+                  Optional. Syncs saved scout goals and compact run history only. Profile, resume, tracker and application drafts stay local.
+                </div>
+              </div>
+              <span className={`badge ${cloudLinked ? 'badge-green' : ''}`}>{cloudLinked ? 'linked' : 'local only'}</span>
+            </div>
+            <div className="text-muted" style={{ fontSize: 8.5, marginTop: 6, lineHeight: 1.5 }}>
+              Sync is explicit in this release; edits are not uploaded automatically. {cloudRevision != null ? `Cloud revision ${cloudRevision}.` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button type="button" className="btn btn-primary" onClick={syncCloud} disabled={Boolean(cloudBusy)}>
+                {cloudBusy === 'sync' ? 'Syncing…' : cloudLinked ? 'Sync now' : 'Enable & sync'}
+              </button>
+              {cloudLinked && (
+                <button type="button" className="btn btn-ghost" onClick={removeCloud} disabled={Boolean(cloudBusy)}>
+                  {cloudBusy === 'delete' ? 'Removing…' : 'Remove cloud copy'}
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={section}>
