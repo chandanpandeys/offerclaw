@@ -66,6 +66,16 @@ function clean(value, max = 4_000) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
 }
 
+function optionsText(options) {
+  if (!Array.isArray(options)) return ''
+  return options.slice(0, 80).map(option => {
+    if (option && typeof option === 'object') {
+      return [option.label, option.value].filter(Boolean).join(' ')
+    }
+    return String(option || '')
+  }).join(' ')
+}
+
 function combinedFieldText(field = {}) {
   return clean([
     field.label,
@@ -74,7 +84,7 @@ function combinedFieldText(field = {}) {
     field.placeholder,
     field.type,
     field.autocomplete,
-    field.options?.join?.(' '),
+    optionsText(field.options),
   ].filter(Boolean).join(' '), 2_000)
 }
 
