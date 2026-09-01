@@ -1,5 +1,6 @@
 import { BROWSER_ACTION, APPROVAL_SCOPE, validateBrowserTask } from '../../src/browserTasks.js'
 import { validateApprovedPrefillFields } from '../../src/prefillContract.js'
+import { validateSubmitApprovalRecord } from '../../src/submitProtocol.js'
 
 const MAX_FIELDS = 120
 const MAX_OPTIONS = 80
@@ -7,6 +8,15 @@ const MAX_PREVIEW_BASE64 = 2_500_000
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{32,120}$/
 const PNG_BASE64_PREFIX = 'iVBORw0KGgo'
 const WORKER_PREFILL_CONNECTORS = Object.freeze(new Set(['greenhouse', 'lever', 'ashby']))
+const SUBMIT_OUTCOMES = Object.freeze(new Set([
+  'blocked_pre_submit',
+  'submit_control_failed',
+  'not_attempted',
+  'submitted_confirmed',
+  'submitted_likely',
+  'attempted_unconfirmed',
+  'attempted_failed',
+]))
 
 function clean(value, max = 500) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -43,12 +53,13 @@ export function getBrowserWorkerConfig(env = {}) {
 export function publicBrowserWorkerRuntime(config) {
   return {
     configured: Boolean(config?.configured),
-    mode: 'inspection_and_supervised_prefill',
+    mode: 'inspection_prefill_submit_once',
     taskVersion: 1,
     pageContentTrust: 'untrusted',
     prefillAllowed: true,
     prefillReviewSession: true,
-    submitAllowed: false,
+    submitOnceAllowed: true,
+    submitAllowed: true,
   }
 }
 
@@ -86,6 +97,10 @@ export function validatePrefillTask(task, approvedFields) {
     ...validation,
     fields: fieldValidation.fields,
   }
+}
+
+export function validateSubmitApproval(approval, options = {}) {
+  return validateSubmitApprovalRecord(approval, options)
 }
 
 function normalizeOptions(options) {
@@ -209,6 +224,41 @@ export function normalizePrefillResult(payload) {
   }
 }
 
+function normalizeBlockers(blockers) {
+  return (Array.isArray(blockers) ? blockers : []).slice(0, 24).map(item => ({
+    code: clean(item?.code, 120) || 'submit_blocked',
+    detail: clean(item?.detail, 240) || null,
+  }))
+}
+
+export function normalizeSubmitOutcome(payload) {
+  const status = SUBMIT_OUTCOMES.has(payload?.status) ? payload.status : 'attempted_unconfirmed'
+  return {
+    version: 1,
+    status,
+    attempted: Boolean(payload?.attempted),
+    confirmed: Boolean(payload?.confirmed),
+    connectorId: clean(payload?.connectorId, 60) || null,
+    approvalId: clean(payload?.approvalId, 180) || null,
+    sessionId: SESSION_ID_RE.test(String(payload?.sessionId || '')) ? String(payload.sessionId) : null,
+    finalUrl: clean(payload?.finalUrl, 2_000) || null,
+    confirmationSignal: clean(payload?.confirmationSignal, 80) || null,
+    blockers: normalizeBlockers(payload?.blockers),
+    network: {
+      allowedRequestCount: Math.max(0, Math.min(100, Number(payload?.network?.allowedRequestCount) || 0)),
+      postRequestCount: Math.max(0, Math.min(20, Number(payload?.network?.postRequestCount) || 0)),
+      navigationRequestCount: Math.max(0, Math.min(20, Number(payload?.network?.navigationRequestCount) || 0)),
+      preflightRequestCount: Math.max(0, Math.min(20, Number(payload?.network?.preflightRequestCount) || 0)),
+      blockedRequestCount: Math.max(0, Math.min(200, Number(payload?.network?.blockedRequestCount) || 0)),
+      lastPostStatus: Number.isInteger(Number(payload?.network?.lastPostStatus))
+        ? Math.min(599, Math.max(100, Number(payload.network.lastPostStatus)))
+        : null,
+    },
+    sessionClosed: Boolean(payload?.sessionClosed),
+    completedAt: clean(payload?.completedAt, 80) || null,
+  }
+}
+
 export function buildWorkerInspectRequest(task, requestId) {
   return {
     version: 1,
@@ -255,6 +305,36 @@ export function buildWorkerPrefillRequest(task, approvedFields, requestId) {
       networkAfterPrefillAllowed: false,
       submitAllowed: false,
       navigationScope: 'task_origin_only',
+    },
+  }
+}
+
+export function buildWorkerSubmitRequest(approvalInput, requestId, options = {}) {
+  const validation = validateSubmitApprovalRecord(approvalInput, options)
+  if (!validation.ok) throw new Error(validation.reason || 'invalid_submit_approval')
+  const approval = validation.approval
+
+  return {
+    version: 1,
+    requestId: clean(requestId, 120),
+    task: {
+      version: 1,
+      connectorId: approval.connectorId,
+      action: BROWSER_ACTION.SUBMIT_APPLICATION,
+      jobUrl: approval.jobUrl,
+      jobId: approval.jobId || null,
+      evidenceSnapshotId: null,
+      approvalScope: APPROVAL_SCOPE.SUBMIT_ONCE,
+      requestedBy: 'user',
+    },
+    approval,
+    policy: {
+      pageContentTrust: 'untrusted',
+      navigationScope: 'task_origin_only',
+      submitAllowed: true,
+      singleSubmitAttempt: true,
+      browserMustStartOffline: true,
+      networkPolicy: 'connector_submission_only',
     },
   }
 }
