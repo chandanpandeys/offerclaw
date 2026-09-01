@@ -44,6 +44,12 @@ const PUBLIC_FEED_CAPABILITIES = {
   [ACTION.READ_JOB]: CAPABILITY.NATIVE,
 }
 
+const LIVE_ATS_CAPABILITIES = {
+  ...PUBLIC_FEED_CAPABILITIES,
+  [ACTION.PREFILL_APPLICATION]: CAPABILITY.APPROVAL,
+  [ACTION.SUBMIT_APPLICATION]: CAPABILITY.APPROVAL,
+}
+
 export const CONNECTORS = Object.freeze({
   jsearch: connector({
     id: 'jsearch',
@@ -114,19 +120,19 @@ export const CONNECTORS = Object.freeze({
     id: 'greenhouse',
     name: 'Greenhouse',
     kind: 'ats',
-    status: 'public_feed_when_configured',
+    status: 'supervised_worker_when_configured',
     hosts: ['greenhouse.io', 'boards.greenhouse.io', 'job-boards.greenhouse.io'],
-    note: 'Official public Job Board API supports read-only discovery when a board token is configured. Application actions remain separate.',
-    capabilities: PUBLIC_FEED_CAPABILITIES,
+    note: 'Official public discovery plus supervised inspect/prefill/submit-once on recognized hosted application routes. Final submit always requires explicit approval.',
+    capabilities: LIVE_ATS_CAPABILITIES,
   }),
   lever: connector({
     id: 'lever',
     name: 'Lever',
     kind: 'ats',
-    status: 'public_feed_when_configured',
+    status: 'supervised_worker_when_configured',
     hosts: ['lever.co', 'jobs.lever.co'],
-    note: 'Official public Postings API supports read-only discovery when a site is configured. Application submission is not enabled.',
-    capabilities: PUBLIC_FEED_CAPABILITIES,
+    note: 'Official public discovery plus supervised inspect/prefill/submit-once on Lever-hosted application routes. Final submit always requires explicit approval.',
+    capabilities: LIVE_ATS_CAPABILITIES,
   }),
   workday: connector({
     id: 'workday',
@@ -139,10 +145,10 @@ export const CONNECTORS = Object.freeze({
     id: 'ashby',
     name: 'Ashby',
     kind: 'ats',
-    status: 'public_feed_when_configured',
+    status: 'supervised_worker_when_configured',
     hosts: ['ashbyhq.com'],
-    note: 'Official public Job Postings API supports listed read-only jobs when a board name is configured.',
-    capabilities: PUBLIC_FEED_CAPABILITIES,
+    note: 'Official public listed-job discovery plus supervised inspect/prefill/submit-once on Ashby-hosted application routes. Final submit always requires explicit approval.',
+    capabilities: LIVE_ATS_CAPABILITIES,
   }),
   smartrecruiters: connector({
     id: 'smartrecruiters',
