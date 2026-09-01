@@ -97,7 +97,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'browser_worker_navigation_scope_violation', requestId: id })
     }
 
-    if (prefill.metadata.submitAttempted || !prefill.metadata.networkFrozen) {
+    if (prefill.metadata.submitAttempted || !prefill.metadata.networkFrozen || !prefill.metadata.browserOffline) {
       console.error('Browser worker prefill policy violation', { requestId: id })
       return res.status(502).json({ error: 'browser_worker_prefill_policy_violation', requestId: id })
     }
