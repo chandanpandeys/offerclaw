@@ -1,4 +1,5 @@
 import { validateApprovedPrefillFields } from '../../src/prefillContract.js'
+import { validateSubmitApprovalRecord } from '../../src/submitProtocol.js'
 
 const CONNECTOR_HOSTS = Object.freeze({
   greenhouse: ['greenhouse.io'],
@@ -15,6 +16,18 @@ function clean(value, max = 2_000) {
 
 function hostMatches(hostname, allowedHost) {
   return hostname === allowedHost || hostname.endsWith(`.${allowedHost}`)
+}
+
+function sameUrl(left, right) {
+  try {
+    const a = new URL(left)
+    const b = new URL(right)
+    a.hash = ''
+    b.hash = ''
+    return a.toString() === b.toString()
+  } catch {
+    return false
+  }
 }
 
 export function validateTargetUrl(rawUrl, connectorId) {
@@ -122,6 +135,52 @@ export function validatePrefillRequest(payload) {
       evidenceSnapshotId: base.task.evidenceSnapshotId ? clean(base.task.evidenceSnapshotId, 180) : null,
     },
     approvedFields: fields.fields,
+  }
+}
+
+export function validateSubmitRequest(payload) {
+  const base = validateBaseEnvelope(payload)
+  if (!base.ok) return base
+
+  if (base.task.action !== 'submit_application') return { ok: false, reason: 'submit_action_required' }
+  if (base.task.approvalScope !== 'submit_once') return { ok: false, reason: 'submit_once_scope_required' }
+  if (base.policy.submitAllowed !== true) return { ok: false, reason: 'submit_permission_required' }
+  if (base.policy.singleSubmitAttempt !== true) return { ok: false, reason: 'single_submit_attempt_required' }
+  if (base.policy.browserMustStartOffline !== true) return { ok: false, reason: 'offline_start_required' }
+  if (base.policy.networkPolicy !== 'connector_submission_only') return { ok: false, reason: 'connector_submit_network_policy_required' }
+
+  const approvalValidation = validateSubmitApprovalRecord(payload.approval)
+  if (!approvalValidation.ok) return { ok: false, reason: approvalValidation.reason }
+  const approval = approvalValidation.approval
+
+  if (approval.connectorId !== base.connectorId) return { ok: false, reason: 'submit_approval_connector_mismatch' }
+  if (!sameUrl(approval.jobUrl, base.target.url)) return { ok: false, reason: 'submit_approval_url_mismatch' }
+  if ((approval.jobId || null) !== (base.task.jobId ? clean(base.task.jobId, 180) : null)) {
+    return { ok: false, reason: 'submit_approval_job_mismatch' }
+  }
+
+  return {
+    ok: true,
+    requestId: base.requestId,
+    connectorId: base.connectorId,
+    target: base.target,
+    approval,
+    task: {
+      version: 1,
+      connectorId: base.connectorId,
+      action: 'submit_application',
+      approvalScope: 'submit_once',
+      jobUrl: base.target.url,
+      jobId: base.task.jobId ? clean(base.task.jobId, 180) : null,
+    },
+    policy: {
+      pageContentTrust: 'untrusted',
+      navigationScope: 'task_origin_only',
+      submitAllowed: true,
+      singleSubmitAttempt: true,
+      browserMustStartOffline: true,
+      networkPolicy: 'connector_submission_only',
+    },
   }
 }
 
