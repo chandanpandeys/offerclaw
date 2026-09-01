@@ -41,13 +41,15 @@ A successful prefill creates a short-lived retained browser context and a PNG sc
 
 Final submission requires a separate deterministic readiness result and a new short-lived `submit_once` approval. The approval carries no resume/profile/form values and is bound to the exact ATS connector, job URL and retained browser session.
 
-The web gateway and worker validate the approval independently. Approval IDs are one-time capabilities within a retained session; a previously used approval ID cannot be replayed even when the browser was safely refrozen before any application request occurred.
+The web gateway and worker validate the approval independently. Approval IDs are one-time capabilities within a retained session; a previously used approval ID cannot be replayed even when a pre-submit validation failure safely returns the browser to its frozen state.
 
 Immediately before submit, the worker checks live required controls, CAPTCHA/2FA/login state, rejected prefill results, URL binding and submit-control ambiguity again.
 
 Only then may the worker temporarily re-enable a connector-scoped network policy. The allowlist is limited to the documented Greenhouse/Lever/Ashby hosted job/application families. The submit window permits connector-owned POST requests, OPTIONS preflight, and first-party top-level document navigation. Ordinary fetch/XHR GETs, third-party analytics, unrelated ATS hosts and WebSockets remain blocked. The worker clicks one submit control exactly once and never automatically retries.
 
 If an application POST or post-click navigation occurs, candidate data is treated as potentially transmitted. The retained browser session is destroyed after bounded outcome capture regardless of success, failure or uncertainty. No request body, response body, candidate field value or raw page HTML is returned or logged.
+
+The frontend stores only a bounded local submission outcome for tracker/audit use: outcome class, confirmation state/signal, connector, final URL, limited request counts/status and timestamp. It never persists the screenshot preview, submit approval ID, retained session capability, form values or raw worker payload.
 
 OfferClaw does not request employer-side Greenhouse/Lever/Ashby API credentials to submit arbitrary candidates. Employer/integration APIs remain separate from the applicant-facing hosted form workflow.
 

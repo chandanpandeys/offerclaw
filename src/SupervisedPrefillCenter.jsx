@@ -62,7 +62,7 @@ export default function SupervisedPrefillCenter() {
       const result = await requestFormInspection(task)
       const review = buildInspectionReview(result.inspection, { profile: profile || {}, job: selectedJob })
       setInspectionState({ jobId: selectedJob.id, status: 'success', review, error: null })
-      addToast(`Reviewed ${review.plan.summary.total} application fields for supervised prefill`, 'success')
+      addToast(`Reviewed ${review.plan.summary.total} application fields for supervised application flow`, 'success')
     } catch (error) {
       const message = inspectionErrorMessage(error)
       setInspectionState({ jobId: selectedJob.id, status: 'error', review: null, error: message })
@@ -73,13 +73,13 @@ export default function SupervisedPrefillCenter() {
   return (
     <div style={shell}>
       {open && (
-        <aside style={drawer} aria-label="OfferClaw supervised prefill center">
+        <aside style={drawer} aria-label="OfferClaw supervised application center">
           <div style={{ ...section, display: 'flex', gap: 8, alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
               <div className="field-label">Supervised Application</div>
-              <div className="text-muted text-xs">inspect → evidence review → frozen prefill</div>
+              <div className="text-muted text-xs">inspect → evidence review → frozen prefill → separate submit approval</div>
             </div>
-            <button type="button" className="btn btn-link" onClick={() => setOpen(false)} aria-label="Close supervised prefill center">✕</button>
+            <button type="button" className="btn btn-link" onClick={() => setOpen(false)} aria-label="Close supervised application center">✕</button>
           </div>
 
           <div style={section}>
@@ -89,10 +89,10 @@ export default function SupervisedPrefillCenter() {
             </div>
             <div className="text-muted text-xs" style={{ marginTop: 5 }}>{selectedJob.company} · {selectedJob.location || 'location not listed'}</div>
             <div className="text-muted text-xs" style={{ marginTop: 7, lineHeight: 1.55 }}>
-              OfferClaw first inspects the live ATS form without candidate values. Only direct profile-backed fields that survive the local review can enter the later prefill approval.
+              OfferClaw first inspects the live ATS form without candidate values. Only direct profile-backed fields that survive local review can be prefilled. Final submission is a separate, short-lived, explicit one-time approval after screenshot review.
             </div>
             <button type="button" className="btn btn-primary" onClick={inspect} disabled={current.status === 'loading'} style={{ marginTop: 8 }}>
-              {current.status === 'loading' ? 'Inspecting form…' : current.status === 'success' ? 'Re-inspect form' : 'Inspect form for safe prefill'}
+              {current.status === 'loading' ? 'Inspecting form…' : current.status === 'success' ? 'Re-inspect form' : 'Inspect form for supervised application'}
             </button>
           </div>
 
@@ -111,7 +111,7 @@ export default function SupervisedPrefillCenter() {
                 <Metric value={current.review.plan.summary.unresolved} label="MISSING" />
               </div>
               <div className="text-muted" style={{ fontSize: 8.5, marginTop: 7, lineHeight: 1.5 }}>
-                Submission is not implemented in this flow. A prefill session is frozen from network access before candidate values are written and expires automatically.
+                CAPTCHA/2FA/login checkpoints, unresolved required fields, changed form controls, expired sessions, and rejected live prefill fields block final approval. OfferClaw never automatically retries a submission.
               </div>
               <SupervisedPrefillPanel job={selectedJob} review={current.review} addToast={addToast} />
             </div>
@@ -124,10 +124,10 @@ export default function SupervisedPrefillCenter() {
         className="btn btn-ghost"
         onClick={() => setOpen(previous => !previous)}
         aria-expanded={open}
-        aria-label="Toggle supervised prefill center"
+        aria-label="Toggle supervised application center"
         style={{ boxShadow: '0 8px 24px rgba(0,0,0,.2)' }}
       >
-        ◇ Prefill · {eligibility.connectorName}
+        ◇ Apply · {eligibility.connectorName}
       </button>
     </div>
   )
