@@ -7,12 +7,15 @@ OfferClaw's web runtime exposes a narrow authenticated gateway to the dedicated 
 ```text
 POST   /api/browser/inspect
 POST   /api/browser/prefill
+POST   /api/browser/submit
 DELETE /api/browser/prefill-session
 ```
 
 Inspection remains read-only and requires `inspect_form + inspect_only`.
 
-Prefill requires `prefill_application + prefill_only`, an explicit reviewed field set, and a Greenhouse/Lever/Ashby target. A successful prefill must also return a short-lived retained frozen browser session plus a bounded PNG review preview. Final submission is not exposed by the gateway.
+Prefill requires `prefill_application + prefill_only`, an explicit reviewed field set, and a Greenhouse/Lever/Ashby target. A successful prefill must return a short-lived retained frozen browser session plus a bounded PNG review preview.
+
+Final submission is a separate `submit_application + submit_once` protocol. `/api/browser/submit` accepts only the short-lived approval record produced from the deterministic readiness gate; it does not accept arbitrary browser actions, form values or destinations.
 
 `DELETE /api/browser/prefill-session` destroys the retained worker context behind one opaque session capability. It is same-origin protected and never exposes the worker bearer token.
 
@@ -34,11 +37,10 @@ The response is normalized to bounded field metadata and checkpoint flags. Raw H
 
 ## Supervised prefill boundary
 
-`/api/browser/prefill` adds a second independent validation layer. It requires:
+`/api/browser/prefill` requires:
 
 - same-origin browser request
-- `prefill_application`
-- `prefill_only`
+- `prefill_application + prefill_only`
 - Greenhouse, Lever, or Ashby destination
 - no more than 40 reviewed fields
 - identity/contact/location/profile-link field kinds only
@@ -47,46 +49,55 @@ The response is normalized to bounded field metadata and checkpoint flags. Raw H
 
 Salary, work authorization, screening answers, file uploads, demographic data, legal declarations, consent, CAPTCHA, 2FA, checkboxes/radios, and unknown controls cannot enter this protocol.
 
-The gateway forwards approved values only to the fixed `${BROWSER_WORKER_URL}/v1/prefill` endpoint using the server-side bearer token. Candidate values are never written to gateway logs and are removed from ordinary normalized worker field metadata.
+The gateway forwards approved values only to the fixed `${BROWSER_WORKER_URL}/v1/prefill` endpoint. Candidate values are removed from normalized result metadata. The worker must report `networkFrozen: true`, `browserOffline: true`, `submitAttempted: false`, a retained session and a bounded PNG preview.
 
-The worker policy requires:
+## Submit-once gateway boundary
+
+`/api/browser/submit` is a new mutation boundary and is independently same-origin protected. The request contains only a `submit_once` approval record.
+
+The gateway validates:
+
+- approval schema/version/scope
+- `explicit_user_approval`
+- supported Greenhouse/Lever/Ashby connector
+- connector/URL match
+- opaque retained-session capability format
+- approval is unconsumed and unexpired
+- approval lifetime is no more than five minutes
+
+It then reconstructs the worker task and forwards only to `${BROWSER_WORKER_URL}/v1/submit` with:
 
 ```json
 {
   "pageContentTrust": "untrusted",
-  "domWritesAllowed": true,
-  "networkAfterPrefillAllowed": false,
-  "submitAllowed": false,
-  "navigationScope": "task_origin_only"
+  "navigationScope": "task_origin_only",
+  "submitAllowed": true,
+  "singleSubmitAttempt": true,
+  "browserMustStartOffline": true,
+  "networkPolicy": "connector_submission_only"
 }
 ```
 
-The gateway rejects a successful-looking response if it reports a different origin, if network freeze is false, if submit was attempted, or if the retained review session/PNG preview is missing.
+The browser-worker bearer token stays server-side. Redirect following at the gateway is disabled.
+
+The worker response is normalized to bounded outcome metadata only. Request bodies, response bodies, form values, raw HTML and arbitrary worker payloads are discarded. If the worker reports that a network submission was attempted but the retained session was not destroyed, the gateway treats that as a policy violation.
 
 ## Worker-side revalidation
 
-The dedicated worker validates the task/field contract again, loads the page under the read-only request policy, detects CAPTCHA/2FA/login checkpoints, and re-inspects every approved control.
+The dedicated worker validates each protocol again. Before submit it atomically claims the retained session, burns the approval ID, checks connector/URL/session binding, rechecks CAPTCHA/2FA/login state, verifies visible required controls, and selects exactly one deterministic submit control.
 
-A live control must still match the approved key, label, type, and safe classification. Changed/missing/ambiguous/disabled/readonly/sensitive controls are rejected.
+Prefill starts from an offline/frozen browser. Submit temporarily re-enables only connector-owned POST/OPTIONS traffic plus first-party document navigation. Third-party requests, ordinary fetch/XHR GETs and WebSockets remain blocked. There is no automatic submit retry.
 
-Before the first candidate value is written, all HTTP(S) traffic is frozen and WebSocket server connections are prevented. This blocks page JavaScript from transmitting values from `input`/`change` listeners. The worker never clicks submit under the prefill scope.
+If candidate data may have left through an application POST or post-click navigation, the session is destroyed regardless of success or uncertainty. If no application request occurs, the worker refreezes the session but the used approval ID cannot be replayed.
+
+See [SUBMIT_ONCE.md](SUBMIT_ONCE.md) for the complete network and outcome model.
 
 ## Retained review response
 
-A successful prefill response contains:
-
-- sanitized field result metadata with no candidate values
-- `networkFrozen: true`
-- `submitAttempted: false`
-- a random opaque session ID and expiry
-- a bounded `image/png` screenshot preview captured after prefill
-
-The screenshot can contain the approved values because its purpose is user review. The browser UI keeps that preview only in component memory; it is not persisted in localStorage, scout Redis state, analytics, or application history.
-
-The session ID is an opaque capability, not a user identity or worker credential. The web cancellation endpoint validates its shape, forwards it only to the fixed worker close endpoint with the server bearer token, and treats an already-expired worker session as safely gone.
+A successful prefill response contains sanitized field result metadata, an opaque session ID/expiry and a bounded `image/png` screenshot preview. The screenshot can contain approved values because its purpose is user review. The browser UI keeps the preview only in component memory; it is not persisted in localStorage, scout Redis state, analytics, or application history.
 
 ## Why a dedicated worker
 
 Browser binaries, isolation, egress control, concurrency, retained sessions, and application-page risk are operationally different from the main Vercel Functions runtime. Keeping browser execution behind a narrow authenticated service lets OfferClaw strengthen that boundary independently.
 
-Final application submission remains a separate future protocol and approval decision. LinkedIn write automation remains blocked unless an authorized integration exists.
+LinkedIn write automation remains blocked unless an authorized integration exists.
