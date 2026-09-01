@@ -2,12 +2,13 @@ import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { closeBrowser, inspectApplicationPage, WORKER_VERSION } from './inspector.js'
 import { closePrefillBrowser, prefillApplicationPage, PREFILL_WORKER_VERSION } from './prefiller.js'
-import { validateInspectRequest, validatePrefillRequest, WORKER_CONNECTORS } from './security.js'
+import { validateInspectRequest, validatePrefillRequest, validateSubmitRequest, WORKER_CONNECTORS } from './security.js'
 import {
   closeAllPrefillSessions,
   closePrefillSession,
   prefillSessionStats,
 } from './sessionStore.js'
+import { submitPrefilledApplication, SUBMIT_WORKER_VERSION } from './submitter.js'
 
 const env = globalThis.process?.env || {}
 const port = Math.min(65_535, Math.max(1_024, Number(env.PORT) || 8787))
@@ -160,6 +161,55 @@ async function handlePrefill(req, res) {
   }
 }
 
+async function handleSubmit(req, res) {
+  if (!authorizeJsonRequest(req, res)) return
+  const payload = await parseRequest(req, res)
+  if (payload == null) return
+
+  const validation = validateSubmitRequest(payload)
+  if (!validation.ok) return json(res, 400, { error: validation.reason })
+
+  activeTasks += 1
+  const started = Date.now()
+  try {
+    const outcome = await submitPrefilledApplication(validation)
+    console.info('browser submit complete', {
+      requestId: validation.requestId,
+      connectorId: validation.connectorId,
+      status: outcome.status,
+      attempted: outcome.attempted,
+      confirmed: outcome.confirmed,
+      postRequestCount: outcome.network.postRequestCount,
+      blockedRequestCount: outcome.network.blockedRequestCount,
+      sessionClosed: outcome.sessionClosed,
+      latencyMs: Date.now() - started,
+    })
+    return json(res, 200, outcome)
+  } catch (error) {
+    const code = error?.code || error?.name || 'Error'
+    console.error('browser submit failed', {
+      requestId: validation.requestId,
+      connectorId: validation.connectorId,
+      code,
+      latencyMs: Date.now() - started,
+    })
+    const conflict = [
+      'submit_session_invalid',
+      'submit_session_not_found',
+      'submit_session_expired',
+      'submit_approval_replayed',
+      'submit_session_busy_or_consumed',
+      'submit_session_connector_mismatch',
+      'submit_session_url_mismatch',
+      'submit_session_already_attempted',
+      'submit_session_not_frozen',
+    ].includes(code)
+    return json(res, conflict ? 409 : 502, { error: conflict ? code : 'submit_failed' })
+  } finally {
+    activeTasks -= 1
+  }
+}
+
 async function handleCloseSession(req, res) {
   if (!authorizeJsonRequest(req, res)) return
   const payload = await parseRequest(req, res)
@@ -175,14 +225,16 @@ const server = createServer(async (req, res) => {
     return json(res, 200, {
       ok: true,
       service: 'offerclaw-browser-worker',
-      version: PREFILL_WORKER_VERSION,
+      version: SUBMIT_WORKER_VERSION,
+      prefillVersion: PREFILL_WORKER_VERSION,
       inspectionVersion: WORKER_VERSION,
-      mode: 'inspection_and_supervised_prefill',
+      mode: 'inspection_prefill_submit_once',
       configured: Boolean(expectedToken),
       connectors: WORKER_CONNECTORS,
       prefillAllowed: true,
       prefillReviewSession: true,
-      submitAllowed: false,
+      submitOnceAllowed: true,
+      submitAllowed: true,
       activeTasks,
       activePrefillSessions: prefillSessionStats().active,
       maxConcurrency,
@@ -191,6 +243,7 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/v1/inspect') return handleInspect(req, res)
   if (req.method === 'POST' && url.pathname === '/v1/prefill') return handlePrefill(req, res)
+  if (req.method === 'POST' && url.pathname === '/v1/submit') return handleSubmit(req, res)
   if (req.method === 'POST' && url.pathname === '/v1/session/close') return handleCloseSession(req, res)
 
   return json(res, 404, { error: 'not_found' })
