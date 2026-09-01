@@ -188,6 +188,7 @@ test('prefill result keeps only review session capability and bounded PNG previe
       filledCount: 1,
       rejectedCount: 0,
       networkFrozen: true,
+      browserOffline: true,
       submitAttempted: false,
       workerVersion: '0.3.0',
       secret: 'drop-me',
@@ -202,6 +203,7 @@ test('prefill result keeps only review session capability and bounded PNG previe
   assert.equal(result.preview.mimeType, 'image/png')
   assert.equal(Object.hasOwn(result.preview, 'secret'), false)
   assert.equal(result.metadata.networkFrozen, true)
+  assert.equal(result.metadata.browserOffline, true)
   assert.equal(result.metadata.submitAttempted, false)
   assert.equal(Object.hasOwn(result.metadata, 'secret'), false)
 })
