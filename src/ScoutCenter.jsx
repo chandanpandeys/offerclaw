@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { skillJobScout } from './agent'
 import { useAgent } from './agentContext'
-import { deleteScoutCloudState, syncScoutCloudState } from './scoutCloud'
+import { deleteScoutCloudState, pullScoutCloudState, syncScoutCloudState } from './scoutCloud'
 import {
   SCOUT_CADENCE,
   SCOUT_FRESHNESS,
@@ -13,6 +13,8 @@ import {
   nextScoutDueAt,
   scoutGoalProfile,
 } from './scoutGoals'
+
+const UNREAD_STORAGE_KEY = 'offerclaw_scout_unread_background_runs'
 
 const shell = {
   position: 'fixed',
@@ -56,12 +58,21 @@ function runSummary(run) {
   return `${run.resultCount} matches · ${run.liveCount} live`
 }
 
+function readUnreadIds() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(UNREAD_STORAGE_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed.filter(Boolean).slice(0, 40) : []
+  } catch {
+    return []
+  }
+}
+
 function cloudFailureMessage(error) {
   if (error?.code === 'identity_not_configured') return 'Device identity is not configured on this deployment.'
   if (error?.code === 'scout_store_not_configured') return 'Durable scout storage is not configured on this deployment.'
-  if (error?.code === 'device_identity_required') return 'Device session could not be established.'
+  if (error?.code === 'device_identity_required') return 'This browser no longer has the linked device session. Enable & sync again to start a new device cloud copy.'
   if (error?.code === 'scout_state_origin_rejected') return 'Scout sync was rejected by the same-origin safety check.'
-  return 'Scout cloud sync failed. Local state was not deleted.'
+  return 'Scout cloud request failed. Local state was not deleted.'
 }
 
 export default function ScoutCenter() {
@@ -87,6 +98,7 @@ export default function ScoutCenter() {
   const [cloudLinked, setCloudLinked] = useState(() => localStorage.getItem('offerclaw_scout_cloud_linked') === 'true')
   const [cloudBusy, setCloudBusy] = useState(null)
   const [cloudRevision, setCloudRevision] = useState(null)
+  const [unreadBackgroundIds, setUnreadBackgroundIds] = useState(readUnreadIds)
 
   const latestRunByGoal = useMemo(() => {
     const map = new Map()
@@ -95,6 +107,26 @@ export default function ScoutCenter() {
     }
     return map
   }, [scoutRuns])
+
+  const unreadBackgroundRuns = useMemo(() => {
+    const unread = new Set(unreadBackgroundIds)
+    return scoutRuns.filter(run => backgroundRun(run) && unread.has(run.id))
+  }, [scoutRuns, unreadBackgroundIds])
+
+  const persistUnreadIds = (nextOrUpdater) => {
+    setUnreadBackgroundIds(previous => {
+      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(previous) : nextOrUpdater
+      const bounded = [...new Set(Array.isArray(next) ? next.filter(Boolean) : [])].slice(0, 40)
+      localStorage.setItem(UNREAD_STORAGE_KEY, JSON.stringify(bounded))
+      return bounded
+    })
+  }
+
+  const addUnreadRuns = (runs) => {
+    const ids = (Array.isArray(runs) ? runs : []).filter(backgroundRun).map(run => run.id).filter(Boolean)
+    if (!ids.length) return
+    persistUnreadIds(previous => [...ids, ...previous])
+  }
 
   const saveGoal = () => {
     const goal = createScoutGoal({
@@ -146,11 +178,37 @@ export default function ScoutCenter() {
     }
   }
 
+  const pullCloud = async ({ quiet = false } = {}) => {
+    if (!cloudLinked || cloudBusy) return
+    setCloudBusy('pull')
+    try {
+      const result = await pullScoutCloudState({ goals: scoutGoals, runs: scoutRuns })
+      setScoutGoals(result.merged.goals)
+      setScoutRuns(result.merged.runs)
+      setCloudRevision(result.revision)
+      addUnreadRuns(result.newBackgroundRuns)
+
+      if (result.newBackgroundRuns.length) {
+        const candidateCount = result.newBackgroundRuns.reduce((sum, run) => sum + Number(run.resultCount || 0), 0)
+        addToast(`${candidateCount} new background candidates arrived`, 'success')
+      } else if (!quiet) {
+        addToast('Scout inbox is up to date', 'info')
+      }
+    } catch (error) {
+      addToast(cloudFailureMessage(error), 'error')
+    } finally {
+      setCloudBusy(null)
+    }
+  }
+
   const syncCloud = async () => {
     if (cloudBusy) return
     setCloudBusy('sync')
+    const existingRunIds = new Set(scoutRuns.map(run => run.id))
     try {
       const result = await syncScoutCloudState({ goals: scoutGoals, runs: scoutRuns })
+      const newBackgroundRuns = result.merged.runs.filter(run => backgroundRun(run) && !existingRunIds.has(run.id))
+      addUnreadRuns(newBackgroundRuns)
       setScoutGoals(result.merged.goals)
       setScoutRuns(result.merged.runs)
       localStorage.setItem('offerclaw_scout_cloud_linked', 'true')
@@ -183,6 +241,18 @@ export default function ScoutCenter() {
     }
   }
 
+  const markRunReviewed = (runId) => {
+    persistUnreadIds(previous => previous.filter(id => id !== runId))
+  }
+
+  const markAllReviewed = () => persistUnreadIds([])
+
+  const toggleOpen = () => {
+    const next = !open
+    setOpen(next)
+    if (next && cloudLinked && !cloudBusy) void pullCloud({ quiet: true })
+  }
+
   return (
     <div style={shell}>
       {open && (
@@ -190,7 +260,7 @@ export default function ScoutCenter() {
           <div style={{ ...section, display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ flex: 1 }}>
               <div className="field-label">Scout Center</div>
-              <div className="text-muted text-xs">saved search goals · run history · due state</div>
+              <div className="text-muted text-xs">saved search goals · background inbox · run history</div>
             </div>
             <button type="button" className="btn btn-link" onClick={() => setOpen(false)} aria-label="Close scout center">✕</button>
           </div>
@@ -251,12 +321,17 @@ export default function ScoutCenter() {
               <span className={`badge ${cloudLinked ? 'badge-green' : ''}`}>{cloudLinked ? 'linked' : 'local only'}</span>
             </div>
             <div className="text-muted" style={{ fontSize: 8.5, marginTop: 6, lineHeight: 1.5 }}>
-              Sync is explicit. The daily scheduler uses only the last synced daily goals; unsynced edits remain local. Background results are unranked candidates until this browser scores them against your profile. {cloudRevision != null ? `Cloud revision ${cloudRevision}.` : ''}
+              Opening a linked Scout Center performs a read-only inbox refresh. Edits still upload only when you choose Sync. The scheduler uses only the last synced daily goals. {cloudRevision != null ? `Cloud revision ${cloudRevision}.` : ''}
             </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-primary" onClick={syncCloud} disabled={Boolean(cloudBusy)}>
                 {cloudBusy === 'sync' ? 'Syncing…' : cloudLinked ? 'Sync now' : 'Enable & sync'}
               </button>
+              {cloudLinked && (
+                <button type="button" className="btn btn-ghost" onClick={() => pullCloud()} disabled={Boolean(cloudBusy)}>
+                  {cloudBusy === 'pull' ? 'Refreshing…' : 'Refresh inbox'}
+                </button>
+              )}
               {cloudLinked && (
                 <button type="button" className="btn btn-ghost" onClick={removeCloud} disabled={Boolean(cloudBusy)}>
                   {cloudBusy === 'delete' ? 'Removing…' : 'Remove cloud copy'}
@@ -264,6 +339,45 @@ export default function ScoutCenter() {
               )}
             </div>
           </div>
+
+          {unreadBackgroundRuns.length > 0 && (
+            <div style={section}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div className="field-label" style={{ flex: 1 }}>Background inbox</div>
+                <span className="badge badge-yellow">{unreadBackgroundRuns.length} unread</span>
+                <button type="button" className="btn btn-link" onClick={markAllReviewed}>Mark all reviewed</button>
+              </div>
+              <div className="text-muted text-xs" style={{ lineHeight: 1.5, marginTop: 5 }}>
+                These are discovery candidates only. They were found without your local profile and have not been personalized, applied to, or contacted.
+              </div>
+              {unreadBackgroundRuns.slice(0, 6).map(run => (
+                <div key={run.id} style={{ padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                    <strong style={{ flex: 1 }}>{run.goalName}</strong>
+                    <span className="badge">{run.resultCount} candidates</span>
+                  </div>
+                  <div className="text-muted" style={{ fontSize: 8.5, marginTop: 3 }}>
+                    discovered {new Date(run.ranAt).toLocaleString()} · not personalized
+                  </div>
+                  <div style={{ display: 'grid', gap: 5, marginTop: 7 }}>
+                    {(run.results || []).slice(0, 4).map((candidate, index) => (
+                      <div key={`${run.id}-${candidate.id || index}`} style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                        <span className="text-xs" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {candidate.title} · {candidate.company}
+                        </span>
+                        {candidate.url && (
+                          <a className="btn btn-link" href={candidate.url} target="_blank" rel="noreferrer">Open</a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" className="btn btn-ghost" style={{ marginTop: 7 }} onClick={() => markRunReviewed(run.id)}>
+                    Mark reviewed
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={section}>
             {scoutGoals.length === 0 && (
@@ -318,12 +432,12 @@ export default function ScoutCenter() {
       <button
         type="button"
         className="btn btn-ghost"
-        onClick={() => setOpen(previous => !previous)}
+        onClick={toggleOpen}
         aria-expanded={open}
         aria-label="Toggle scout center"
         style={{ boxShadow: '0 8px 24px rgba(0,0,0,.2)' }}
       >
-        ⌕ Scouts{scoutGoals.some(goal => isScoutDue(goal)) ? ' · due' : scoutGoals.length ? ` · ${scoutGoals.length}` : ''}
+        ⌕ Scouts{unreadBackgroundRuns.length ? ` · ${unreadBackgroundRuns.length} new` : scoutGoals.some(goal => isScoutDue(goal)) ? ' · due' : scoutGoals.length ? ` · ${scoutGoals.length}` : ''}
       </button>
     </div>
   )
