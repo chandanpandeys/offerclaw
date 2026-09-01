@@ -2,7 +2,15 @@ import { connectorSnapshot } from './connectors.js'
 import { snapshotJobEvidence } from './evals.js'
 import { buildSourceIntel } from './sourceIntel.js'
 
-const ALLOWED_STATUS = new Set(['submitted_confirmed', 'attempted_unconfirmed', 'blocked_pre_submit'])
+const ALLOWED_STATUS = new Set([
+  'blocked_pre_submit',
+  'submit_control_failed',
+  'not_attempted',
+  'submitted_confirmed',
+  'submitted_likely',
+  'attempted_unconfirmed',
+  'attempted_failed',
+])
 
 function text(value, max = 2_000) {
   return String(value || '').trim().slice(0, max)
