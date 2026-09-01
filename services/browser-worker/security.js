@@ -1,3 +1,5 @@
+import { validateApprovedPrefillFields } from '../../src/prefillContract.js'
+
 const CONNECTOR_HOSTS = Object.freeze({
   greenhouse: ['greenhouse.io'],
   lever: ['lever.co'],
@@ -41,7 +43,7 @@ export function validateTargetUrl(rawUrl, connectorId) {
   }
 }
 
-export function validateInspectRequest(payload) {
+function validateBaseEnvelope(payload) {
   if (!payload || typeof payload !== 'object') return { ok: false, reason: 'request_required' }
   if (payload.version !== WORKER_POLICY_VERSION) return { ok: false, reason: 'unsupported_request_version' }
 
@@ -49,11 +51,7 @@ export function validateInspectRequest(payload) {
   const policy = payload.policy
   if (!task || typeof task !== 'object') return { ok: false, reason: 'task_required' }
   if (!policy || typeof policy !== 'object') return { ok: false, reason: 'policy_required' }
-
   if (task.version !== 1) return { ok: false, reason: 'unsupported_task_version' }
-  if (task.action !== 'inspect_form') return { ok: false, reason: 'inspection_only' }
-  if (task.approvalScope !== 'inspect_only') return { ok: false, reason: 'inspection_scope_required' }
-  if (policy.writesAllowed !== false) return { ok: false, reason: 'writes_must_be_disabled' }
   if (policy.navigationScope !== 'task_origin_only') return { ok: false, reason: 'origin_scope_required' }
   if (policy.pageContentTrust !== 'untrusted') return { ok: false, reason: 'page_content_must_be_untrusted' }
 
@@ -66,15 +64,64 @@ export function validateInspectRequest(payload) {
     requestId: clean(payload.requestId, 120) || null,
     connectorId,
     target,
+    task,
+    policy,
+  }
+}
+
+export function validateInspectRequest(payload) {
+  const base = validateBaseEnvelope(payload)
+  if (!base.ok) return base
+
+  if (base.task.action !== 'inspect_form') return { ok: false, reason: 'inspection_only' }
+  if (base.task.approvalScope !== 'inspect_only') return { ok: false, reason: 'inspection_scope_required' }
+  if (base.policy.writesAllowed !== false) return { ok: false, reason: 'writes_must_be_disabled' }
+
+  return {
+    ok: true,
+    requestId: base.requestId,
+    connectorId: base.connectorId,
+    target: base.target,
     task: {
       version: 1,
-      connectorId,
+      connectorId: base.connectorId,
       action: 'inspect_form',
       approvalScope: 'inspect_only',
-      jobUrl: target.url,
-      jobId: task.jobId ? clean(task.jobId, 180) : null,
-      evidenceSnapshotId: task.evidenceSnapshotId ? clean(task.evidenceSnapshotId, 180) : null,
+      jobUrl: base.target.url,
+      jobId: base.task.jobId ? clean(base.task.jobId, 180) : null,
+      evidenceSnapshotId: base.task.evidenceSnapshotId ? clean(base.task.evidenceSnapshotId, 180) : null,
     },
+  }
+}
+
+export function validatePrefillRequest(payload) {
+  const base = validateBaseEnvelope(payload)
+  if (!base.ok) return base
+
+  if (base.task.action !== 'prefill_application') return { ok: false, reason: 'prefill_only' }
+  if (base.task.approvalScope !== 'prefill_only') return { ok: false, reason: 'prefill_scope_required' }
+  if (base.policy.domWritesAllowed !== true) return { ok: false, reason: 'prefill_dom_writes_required' }
+  if (base.policy.networkAfterPrefillAllowed !== false) return { ok: false, reason: 'prefill_network_must_be_frozen' }
+  if (base.policy.submitAllowed !== false) return { ok: false, reason: 'submit_must_be_disabled' }
+
+  const fields = validateApprovedPrefillFields(payload.approvedFields)
+  if (!fields.ok) return { ok: false, reason: fields.reason }
+
+  return {
+    ok: true,
+    requestId: base.requestId,
+    connectorId: base.connectorId,
+    target: base.target,
+    task: {
+      version: 1,
+      connectorId: base.connectorId,
+      action: 'prefill_application',
+      approvalScope: 'prefill_only',
+      jobUrl: base.target.url,
+      jobId: base.task.jobId ? clean(base.task.jobId, 180) : null,
+      evidenceSnapshotId: base.task.evidenceSnapshotId ? clean(base.task.evidenceSnapshotId, 180) : null,
+    },
+    approvedFields: fields.fields,
   }
 }
 
