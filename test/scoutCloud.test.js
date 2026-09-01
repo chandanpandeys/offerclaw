@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   deleteScoutCloudState,
+  pullScoutCloudState,
   syncScoutCloudState,
 } from '../src/scoutCloud.js'
 
@@ -13,6 +14,73 @@ function response(status, body) {
     json: async () => body,
   }
 }
+
+test('read-only cloud pull performs one GET, merges state and reports only new background runs', async () => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, options })
+    return response(200, {
+      revision: 7,
+      state: {
+        goals: [{
+          id: 'remote-goal',
+          name: 'Remote',
+          query: 'ML Engineer',
+          location: 'Remote',
+          updatedAt: '2026-09-01T01:00:00Z',
+        }],
+        runs: [
+          {
+            id: 'bg-new',
+            mode: 'background_discovery',
+            goalId: 'remote-goal',
+            goalName: 'Remote',
+            ranAt: '2026-09-01T03:00:00Z',
+            results: [{ title: 'ML Engineer', company: 'Example' }],
+          },
+          {
+            id: 'interactive-remote',
+            mode: 'interactive_ranked',
+            goalId: 'remote-goal',
+            goalName: 'Remote',
+            ranAt: '2026-09-01T02:00:00Z',
+          },
+          {
+            id: 'bg-existing',
+            mode: 'background_discovery',
+            goalId: 'remote-goal',
+            goalName: 'Remote',
+            ranAt: '2026-08-31T03:00:00Z',
+          },
+        ],
+      },
+    })
+  }
+
+  try {
+    const result = await pullScoutCloudState({
+      goals: [],
+      runs: [{
+        id: 'bg-existing',
+        mode: 'background_discovery',
+        goalId: 'remote-goal',
+        goalName: 'Remote',
+        ranAt: '2026-08-31T03:00:00Z',
+      }],
+    })
+
+    assert.equal(result.revision, 7)
+    assert.deepEqual(result.newBackgroundRuns.map(run => run.id), ['bg-new'])
+    assert.deepEqual(result.merged.runs.map(run => run.id), ['bg-new', 'interactive-remote', 'bg-existing'])
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].url, '/api/scout/state')
+    assert.equal(calls[0].options.method, undefined)
+    assert.equal(calls[0].options.credentials, 'same-origin')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
 
 test('cloud sync creates device session, merges remote state and saves with current revision', async () => {
   const originalFetch = globalThis.fetch

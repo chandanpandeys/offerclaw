@@ -76,7 +76,13 @@ Each compact result may retain:
 
 `matchScore` is forced to `null`. Full job descriptions are not persisted by the scout-state schema.
 
-When the user next chooses `Sync now`, these background discoveries merge into the browser's scout history. They are shown as **candidates**, not matches. Personalized evaluation can happen later in the browser where the local candidate profile is available.
+When the user returns to a previously linked browser and opens Scout Center, OfferClaw performs a **read-only** cloud refresh. The GET response is merged into local scout state, newly arrived background runs are marked unread only in local browser storage, and the Scout Center shows them in a background inbox. This refresh does not create a device session, does not write Redis state, and does not upload local edits.
+
+The user can also choose `Refresh inbox` to repeat the same GET-only pull. `Sync now` remains the explicit write operation that uploads the current normalized scout state.
+
+Unread/read markers are never stored in Redis. They are local UI state so the background service does not learn what the user opened or reviewed.
+
+Background discoveries are shown as **candidates**, not matches. Personalized evaluation can happen later in the browser where the local candidate profile is available.
 
 ## What the cron never does
 
@@ -99,4 +105,4 @@ The cron response contains counts/status metadata only. It does not return devic
 
 ## Current delivery model
 
-Background discoveries are persisted for later explicit browser sync. This PR does not yet send email, push, SMS, Slack, or other notifications.
+Background discoveries are persisted and surfaced in the in-app Scout Center inbox when a linked browser returns. OfferClaw still does not send email, push, SMS, Slack, or other out-of-band notifications in this layer.
