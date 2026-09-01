@@ -1,6 +1,7 @@
 import { APPROVAL_SCOPE, BROWSER_ACTION, createBrowserTask } from './browserTasks.js'
 import { resolveConnector } from './connectors.js'
 import { buildFormPlan } from './formPlanner.js'
+import { prefillApprovalEntries } from './prefillContract.js'
 
 export const LIVE_INSPECTION_CONNECTORS = Object.freeze(['greenhouse', 'lever', 'ashby'])
 const LIVE_INSPECTION_SET = new Set(LIVE_INSPECTION_CONNECTORS)
@@ -15,7 +16,6 @@ export function inspectionEligibility(job = {}) {
     return { eligible: false, reason: 'application_url_missing', connectorId: null, url: null }
   }
 
-  // Resolve from the destination itself instead of trusting feed-provided connector metadata.
   const connector = resolveConnector({ url })
   if (!LIVE_INSPECTION_SET.has(connector.id)) {
     return {
@@ -59,6 +59,7 @@ export async function requestFormInspection(task, fetchImpl = globalThis.fetch) 
   const response = await fetchImpl('/api/browser/inspect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     body: JSON.stringify({ task }),
   })
 
@@ -130,6 +131,86 @@ export function buildInspectionReview(inspection, { profile = {}, job = {} } = {
   }
 }
 
+function hasManualCheckpoint(review = {}) {
+  return Boolean(
+    review?.checkpoints?.captchaDetected
+    || review?.checkpoints?.twoFactorDetected
+    || review?.checkpoints?.loginRequired
+  )
+}
+
+export function createPrefillTaskFromReview(job = {}, review = {}) {
+  const eligibility = inspectionEligibility(job)
+  if (!eligibility.eligible) {
+    return { task: null, approvedFields: [], eligibility, reason: eligibility.reason }
+  }
+  if (review?.connectorId && review.connectorId !== eligibility.connectorId) {
+    return { task: null, approvedFields: [], eligibility, reason: 'prefill_review_connector_mismatch' }
+  }
+  if (review?.requestUrl && new URL(review.requestUrl).origin !== new URL(eligibility.url).origin) {
+    return { task: null, approvedFields: [], eligibility, reason: 'prefill_review_origin_mismatch' }
+  }
+  if (hasManualCheckpoint(review)) {
+    return { task: null, approvedFields: [], eligibility, reason: 'prefill_manual_checkpoint_present' }
+  }
+
+  const approvedFields = prefillApprovalEntries(review?.plan)
+  if (!approvedFields.length) {
+    return { task: null, approvedFields: [], eligibility, reason: 'prefill_no_safe_fields' }
+  }
+
+  return {
+    eligibility,
+    approvedFields,
+    reason: 'prefill_ready_for_confirmation',
+    task: createBrowserTask({
+      connectorId: eligibility.connectorId,
+      action: BROWSER_ACTION.PREFILL_APPLICATION,
+      jobUrl: eligibility.url,
+      jobId: job.id || null,
+      evidenceSnapshotId: job.evidenceSnapshotId || null,
+      approvalScope: APPROVAL_SCOPE.PREFILL_ONLY,
+      requestedBy: 'user',
+    }),
+  }
+}
+
+export async function requestSupervisedPrefill(task, approvedFields, fetchImpl = globalThis.fetch) {
+  if (typeof fetchImpl !== 'function') throw new Error('prefill_fetch_unavailable')
+
+  const response = await fetchImpl('/api/browser/prefill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ task, approvedFields }),
+  })
+
+  let body = {}
+  try {
+    body = await response.json()
+  } catch {
+    body = {}
+  }
+
+  if (!response.ok) {
+    const error = new Error(String(body.error || 'browser_prefill_failed'))
+    error.code = String(body.error || 'browser_prefill_failed')
+    error.requestId = body.requestId || null
+    throw error
+  }
+
+  if (!body.prefill || typeof body.prefill !== 'object') {
+    const error = new Error('browser_prefill_invalid_response')
+    error.code = 'browser_prefill_invalid_response'
+    throw error
+  }
+
+  return {
+    requestId: body.requestId || null,
+    prefill: body.prefill,
+  }
+}
+
 export function inspectionErrorMessage(error) {
   const code = String(error?.code || error?.message || '')
   const messages = {
@@ -141,4 +222,20 @@ export function inspectionErrorMessage(error) {
     browser_inspection_invalid_response: 'The browser worker returned an invalid inspection result.',
   }
   return messages[code] || 'Application-form inspection failed. No form changes were made.'
+}
+
+export function prefillErrorMessage(error) {
+  const code = String(error?.code || error?.message || '')
+  const messages = {
+    browser_worker_not_configured: 'Supervised prefill is not configured on this deployment yet.',
+    browser_worker_rate_limited: 'The browser worker is busy. Try prefill again shortly.',
+    browser_worker_unavailable: 'The browser worker could not be reached.',
+    browser_worker_failed: 'The application page could not be prefilled safely.',
+    browser_prefill_revalidation_failed: 'The live form changed or now requires a manual checkpoint. Inspect it again before prefilling.',
+    browser_worker_navigation_scope_violation: 'Prefill stopped because the page navigated outside the approved origin.',
+    browser_worker_prefill_policy_violation: 'Prefill stopped because the worker did not confirm the required network/submit safety policy.',
+    browser_prefill_origin_rejected: 'Prefill was rejected by the same-origin safety check.',
+    browser_prefill_invalid_response: 'The browser worker returned an invalid prefill result.',
+  }
+  return messages[code] || 'Supervised prefill failed. Final submission was not attempted.'
 }
