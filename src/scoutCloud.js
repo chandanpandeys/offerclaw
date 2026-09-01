@@ -1,4 +1,4 @@
-import { mergeScoutStates, normalizeScoutState } from './scoutState.js'
+import { SCOUT_RUN_MODE, mergeScoutStates, normalizeScoutState } from './scoutState.js'
 
 async function readJson(response) {
   try { return await response.json() } catch { return {} }
@@ -56,6 +56,24 @@ export function saveScoutCloudState(state, expectedRevision) {
 
 export function deleteScoutCloudState() {
   return requestJson('/api/scout/state', { method: 'DELETE' })
+}
+
+function backgroundRunDelta(localState, remoteState) {
+  const local = normalizeScoutState(localState)
+  const remote = normalizeScoutState(remoteState)
+  const localIds = new Set(local.runs.map(run => run.id))
+  return remote.runs.filter(run => run.mode === SCOUT_RUN_MODE.BACKGROUND && !localIds.has(run.id))
+}
+
+export async function pullScoutCloudState(localState) {
+  const remote = await loadScoutCloudState()
+  const newBackgroundRuns = backgroundRunDelta(localState, remote.state || {})
+  const merged = mergeScoutStates(localState, remote.state || {})
+  return {
+    revision: remote.revision || 0,
+    merged,
+    newBackgroundRuns,
+  }
 }
 
 export async function syncScoutCloudState(localState) {
