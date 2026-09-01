@@ -102,6 +102,11 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'browser_worker_prefill_policy_violation', requestId: id })
     }
 
+    if (!prefill.session || !prefill.preview) {
+      console.error('Browser worker prefill review session missing', { requestId: id })
+      return res.status(502).json({ error: 'browser_worker_prefill_review_missing', requestId: id })
+    }
+
     return res.status(200).json({ requestId: id, prefill })
   } catch (error) {
     console.error('Browser worker prefill gateway error', {
