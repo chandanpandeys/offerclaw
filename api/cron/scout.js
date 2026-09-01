@@ -14,10 +14,10 @@ import {
 import { createBackgroundDiscoveryRun } from '../../src/backgroundScout.js'
 import {
   SCOUT_CADENCE,
-  isScoutDue,
   markScoutGoalRun,
 } from '../../src/scoutGoals.js'
 import {
+  isBackgroundScoutDue,
   nextScoutStateDueAt,
   normalizeScoutState,
 } from '../../src/scoutState.js'
@@ -84,7 +84,7 @@ async function processNamespace(namespace, env, storeConfig, now) {
 
   const state = normalizeScoutState(record.state, now)
   const dueGoals = state.goals
-    .filter(goal => goal.enabled && goal.cadence === SCOUT_CADENCE.DAILY && isScoutDue(goal, now))
+    .filter(goal => goal.enabled && goal.cadence === SCOUT_CADENCE.DAILY && isBackgroundScoutDue(goal, now))
     .slice(0, MAX_GOALS_PER_DEVICE)
 
   if (!dueGoals.length) {
