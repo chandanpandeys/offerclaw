@@ -5,6 +5,7 @@ const MAX_FIELDS = 120
 const MAX_OPTIONS = 80
 const MAX_PREVIEW_BASE64 = 2_500_000
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{32,120}$/
+const PNG_BASE64_PREFIX = 'iVBORw0KGgo'
 const WORKER_PREFILL_CONNECTORS = Object.freeze(new Set(['greenhouse', 'lever', 'ashby']))
 
 function clean(value, max = 500) {
@@ -169,7 +170,8 @@ function normalizePreview(preview) {
   const mimeType = clean(preview?.mimeType, 80)
   const base64 = String(preview?.base64 || '').trim()
   if (mimeType !== 'image/png') return null
-  if (!base64 || base64.length > MAX_PREVIEW_BASE64 || !/^[A-Za-z0-9+/=]+$/.test(base64)) return null
+  if (!base64.startsWith(PNG_BASE64_PREFIX)) return null
+  if (base64.length > MAX_PREVIEW_BASE64 || !/^[A-Za-z0-9+/=]+$/.test(base64)) return null
   return {
     mimeType,
     base64,
@@ -200,6 +202,7 @@ export function normalizePrefillResult(payload) {
       filledCount: Number.isInteger(Number(payload?.metadata?.filledCount)) ? Number(payload.metadata.filledCount) : 0,
       rejectedCount: Number.isInteger(Number(payload?.metadata?.rejectedCount)) ? Number(payload.metadata.rejectedCount) : 0,
       networkFrozen: Boolean(payload?.metadata?.networkFrozen),
+      browserOffline: Boolean(payload?.metadata?.browserOffline),
       submitAttempted: Boolean(payload?.metadata?.submitAttempted),
       workerVersion: clean(payload?.metadata?.workerVersion, 80) || null,
     },
