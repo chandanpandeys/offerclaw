@@ -2,76 +2,52 @@
 
 Playwright service for **read-only inspection and explicitly approved supervised prefill** of supported application forms.
 
-This service is intentionally separate from the Vite/Vercel web runtime because Chromium is a heavier, higher-risk execution boundary. It still has **no final-submit capability**.
+This service is intentionally separate from the Vite/Vercel web runtime because Chromium is a heavier, higher-risk execution boundary. It has **no final-submit capability**.
 
 ## Supported connectors
 
-The first runtime enables only:
-
-- Greenhouse
-- Lever
-- Ashby
-
-Other connector contracts remain disabled until their public application pages are tested against the same policy.
+The first runtime enables only Greenhouse, Lever and Ashby. Other connector contracts remain disabled until their public application pages are tested against the same policy.
 
 ## Endpoints
 
 - `GET /health`
 - `POST /v1/inspect` — read-only form metadata inspection
-- `POST /v1/prefill` — fill an explicit reviewed field set without submitting
+- `POST /v1/prefill` — fill an explicit reviewed field set without submitting, then retain a frozen review session
+- `POST /v1/session/close` — destroy one retained prefill review session
 
-Both POST endpoints require the worker bearer token.
+All POST endpoints require the worker bearer token.
 
 ## Inspection security model
 
-Inspection rejects:
+Inspection rejects non-HTTPS targets, URL credentials, hostname substring spoofing, non-enabled connectors, prefill/submit actions, scopes other than `inspect_only`, requests that allow writes, and requests that do not mark page content untrusted.
 
-- non-HTTPS targets
-- URLs containing credentials
-- hostname substring spoofing
-- non-enabled connectors
-- prefill or submit actions on the inspection endpoint
-- scopes other than `inspect_only`
-- requests where `writesAllowed` is not exactly `false`
-- requests where page content is not marked untrusted
-
-During inspection:
-
-- a fresh browser context is created for each request
-- downloads, dialogs, service workers, and new tabs are suppressed
-- all non-GET/HEAD/OPTIONS requests are blocked
-- document navigation is constrained to the approved origin
-- no candidate profile/resume data is sent to the page
-- field values and raw HTML are never returned
+During inspection a fresh browser context is created, downloads/dialogs/service workers/new tabs are suppressed, non-GET/HEAD/OPTIONS requests are blocked, document navigation is constrained to the approved origin, no candidate profile/resume data is sent to the page, and field values/raw HTML are never returned.
 
 ## Supervised prefill security model
 
-Prefill accepts only tasks with:
+Prefill accepts only `prefill_application + prefill_only` tasks for Greenhouse, Lever or Ashby with at most 40 explicitly reviewed fields. Approved fields are limited to direct profile-backed identity, contact, location and profile-link values.
 
-- action `prefill_application`
-- approval scope `prefill_only`
-- Greenhouse, Lever, or Ashby target origin
-- page content marked untrusted
-- `domWritesAllowed: true`
-- `networkAfterPrefillAllowed: false`
-- `submitAllowed: false`
-- at most 40 explicitly reviewed approved fields
+Salary, work authorization, screening answers, demographic fields, legal attestations, consent, CAPTCHA, 2FA, file uploads, checkboxes/radios and unknown fields are excluded.
 
-Approved fields are limited to direct profile-backed identity, contact, location, and profile-link values. Salary, work authorization, screening answers, demographic fields, legal attestations, consent, CAPTCHA, 2FA, file uploads, checkboxes/radios, and unknown fields are excluded from this protocol.
-
-The worker re-inspects every approved field before writing. The live field must still have the same key, label, input type, and safe classification. Missing, ambiguous, changed, disabled, readonly, or newly sensitive fields are rejected rather than filled.
+The worker re-inspects every approved live control before writing. The key, label, input type and safe classification must still match; missing, ambiguous, changed, disabled, readonly or newly sensitive fields are rejected.
 
 ### Network freeze before candidate values
 
-A form can attach JavaScript listeners that transmit values as soon as an input changes. Therefore the worker does **not** rely on “we never click submit” as a privacy boundary.
+A form can attach JavaScript listeners that transmit values as soon as an input changes. Therefore the worker does not rely on “we never click submit” as its privacy boundary.
 
-The page is allowed to load under the read-only request policy. After field revalidation and checkpoint detection, the worker freezes all HTTP(S) requests before the first candidate value is written. WebSocket connections are routed without connecting to their servers. Only then are reviewed values written to the DOM.
+The page first loads under the read-only request policy. After live revalidation and checkpoint detection, the worker freezes all HTTP(S) traffic and prevents WebSocket server connections. Only then are approved candidate values written into the DOM. Final submit is never clicked under `prefill_only`.
 
-The worker never returns approved values in its response and never logs them. It returns only field key/status/kind/evidence-source metadata and counts.
+The dedicated Chromium regression test includes a form whose email `input` handler attempts to exfiltrate the value; the leak request must never reach the fixture server.
 
-CAPTCHA, 2FA, or login checkpoints abort prefill for the whole task. Final submit is not implemented by `/v1/prefill`.
+## Retained frozen review sessions
 
-The main OfferClaw gateway independently validates the task and approved fields before calling the worker, then sanitizes and policy-checks the response again.
+A successful prefill is not discarded immediately. The frozen Playwright context is retained behind a cryptographically random opaque session ID, and the worker captures a 1280×900 PNG viewport preview after the values are filled.
+
+The default retained-session lifetime is 10 minutes, with a hard maximum of 15 minutes. The in-memory store is bounded; when full, the oldest context is destroyed before a new one is retained. Sessions are also destroyed by explicit `/v1/session/close`, expiry, eviction and process shutdown.
+
+The screenshot may contain approved candidate values. It is returned to the active web review UI for display, not written to worker logs or durable OfferClaw storage. Ordinary JSON field-result metadata never echoes candidate values.
+
+The retained session remains network-frozen. A future final-submit protocol must be a separate approval scope and must explicitly define how/when networking is allowed again; it cannot inherit submit authority from prefill.
 
 ## Local run
 
@@ -104,7 +80,7 @@ For production, run the container as an isolated service with outbound network c
 ## Environment
 
 - `PORT` — defaults to `8787`
-- `BROWSER_WORKER_TOKEN` — required for `/v1/inspect` and `/v1/prefill`
+- `BROWSER_WORKER_TOKEN` — required for worker POST endpoints
 - `BROWSER_WORKER_MAX_CONCURRENCY` — defaults to `2`, capped at `4`
 - `BROWSER_WORKER_INSPECT_TIMEOUT_MS` — defaults to `15000`, capped at `20000`
 
