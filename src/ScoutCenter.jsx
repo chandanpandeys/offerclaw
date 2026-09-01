@@ -149,7 +149,7 @@ export default function ScoutCenter() {
   }
 
   const runGoal = async (goal) => {
-    if (runningGoalId) return
+    if (runningGoalId) return null
     setRunningGoalId(goal.id)
     addToast(`Scouting: ${goal.query}`, 'info')
 
@@ -171,8 +171,10 @@ export default function ScoutCenter() {
           : `Scout “${goal.name}” found no roles that cleared the saved filters. No applications were sent.`,
       })
       addToast(matches.length ? `${matches.length} scout matches loaded` : 'No scout matches cleared the filters', matches.length ? 'success' : 'info')
+      return matches
     } catch {
       addToast('Scout run failed. No external actions were taken.', 'error')
+      return null
     } finally {
       setRunningGoalId(null)
     }
@@ -246,6 +248,18 @@ export default function ScoutCenter() {
   }
 
   const markAllReviewed = () => persistUnreadIds([])
+
+  const reviewBackgroundRun = async (run) => {
+    const goal = scoutGoals.find(item => item.id === run.goalId)
+    if (!goal) {
+      addToast('The saved scout goal for this discovery is no longer available.', 'error')
+      return
+    }
+
+    addToast('Running a fresh personalized review locally', 'info')
+    const matches = await runGoal(goal)
+    if (matches !== null) markRunReviewed(run.id)
+  }
 
   const toggleOpen = () => {
     const next = !open
@@ -350,32 +364,50 @@ export default function ScoutCenter() {
               <div className="text-muted text-xs" style={{ lineHeight: 1.5, marginTop: 5 }}>
                 These are discovery candidates only. They were found without your local profile and have not been personalized, applied to, or contacted.
               </div>
-              {unreadBackgroundRuns.slice(0, 6).map(run => (
-                <div key={run.id} style={{ padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-                    <strong style={{ flex: 1 }}>{run.goalName}</strong>
-                    <span className="badge">{run.resultCount} candidates</span>
-                  </div>
-                  <div className="text-muted" style={{ fontSize: 8.5, marginTop: 3 }}>
-                    discovered {new Date(run.ranAt).toLocaleString()} · not personalized
-                  </div>
-                  <div style={{ display: 'grid', gap: 5, marginTop: 7 }}>
-                    {(run.results || []).slice(0, 4).map((candidate, index) => (
-                      <div key={`${run.id}-${candidate.id || index}`} style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-                        <span className="text-xs" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {candidate.title} · {candidate.company}
-                        </span>
-                        {candidate.url && (
-                          <a className="btn btn-link" href={candidate.url} target="_blank" rel="noreferrer">Open</a>
-                        )}
+              {unreadBackgroundRuns.slice(0, 6).map(run => {
+                const savedGoalAvailable = scoutGoals.some(goal => goal.id === run.goalId)
+                return (
+                  <div key={run.id} style={{ padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                      <strong style={{ flex: 1 }}>{run.goalName}</strong>
+                      <span className="badge">{run.resultCount} candidates</span>
+                    </div>
+                    <div className="text-muted" style={{ fontSize: 8.5, marginTop: 3 }}>
+                      discovered {new Date(run.ranAt).toLocaleString()} · not personalized
+                    </div>
+                    <div style={{ display: 'grid', gap: 5, marginTop: 7 }}>
+                      {(run.results || []).slice(0, 4).map((candidate, index) => (
+                        <div key={`${run.id}-${candidate.id || index}`} style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
+                          <span className="text-xs" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {candidate.title} · {candidate.company}
+                          </span>
+                          {candidate.url && (
+                            <a className="btn btn-link" href={candidate.url} target="_blank" rel="noreferrer">Open</a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => reviewBackgroundRun(run)}
+                        disabled={Boolean(runningGoalId) || !savedGoalAvailable}
+                      >
+                        {runningGoalId === run.goalId ? 'Reviewing…' : 'Run full local review'}
+                      </button>
+                      <button type="button" className="btn btn-ghost" onClick={() => markRunReviewed(run.id)}>
+                        Mark reviewed
+                      </button>
+                    </div>
+                    {!savedGoalAvailable && (
+                      <div className="text-muted" style={{ fontSize: 8.5, marginTop: 5 }}>
+                        The saved goal was removed, so this discovery remains reviewable only through its candidate links.
                       </div>
-                    ))}
+                    )}
                   </div>
-                  <button type="button" className="btn btn-ghost" style={{ marginTop: 7 }} onClick={() => markRunReviewed(run.id)}>
-                    Mark reviewed
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
