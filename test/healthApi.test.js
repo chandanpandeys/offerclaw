@@ -34,24 +34,37 @@ async function withEnv(values, fn) {
   }
 }
 
-test('health exposes only public identity, store and discovery readiness', async () => {
+test('health exposes only public identity store discovery and browser capabilities', async () => {
   await withEnv({
     OFFERCLAW_IDENTITY_SECRET: SECRET,
     UPSTASH_REDIS_REST_URL: 'https://redis.example',
     UPSTASH_REDIS_REST_TOKEN: 'secret-token',
     JSEARCH_API_KEY: 'jobs-secret',
     CRON_SECRET: 'cron-secret-long-enough-123456',
+    BROWSER_WORKER_URL: 'https://worker.example',
+    BROWSER_WORKER_TOKEN: 'browser-worker-secret',
   }, async () => {
     const res = mockResponse()
     handler({ method: 'GET' }, res)
 
     assert.equal(res.statusCode, 200)
-    assert.equal(res.body.version, '1.7')
+    assert.equal(res.body.version, '1.8')
     assert.equal(res.body.identity.configured, true)
     assert.equal(res.body.identity.type, 'anonymous_device')
     assert.equal(res.body.identity.profileDataInToken, false)
     assert.equal(Object.hasOwn(res.body.identity, 'secret'), false)
     assert.equal(Object.hasOwn(res.body.identity, 'subject'), false)
+
+    assert.equal(res.body.browserWorker.configured, true)
+    assert.equal(res.body.browserWorker.mode, 'inspection_prefill_submit_once')
+    assert.equal(res.body.browserWorker.prefillAllowed, true)
+    assert.equal(res.body.browserWorker.prefillReviewSession, true)
+    assert.equal(res.body.browserWorker.submitOnceAllowed, true)
+    assert.equal(res.body.browserWorker.submitAllowed, true)
+    assert.equal(Object.hasOwn(res.body.browserWorker, 'url'), false)
+    assert.equal(Object.hasOwn(res.body.browserWorker, 'token'), false)
+    assert.equal(JSON.stringify(res.body.browserWorker).includes('worker.example'), false)
+    assert.equal(JSON.stringify(res.body.browserWorker).includes('browser-worker-secret'), false)
 
     assert.equal(res.body.scoutStore.configured, true)
     assert.equal(res.body.scoutStore.provider, 'upstash_redis_rest')
@@ -70,6 +83,9 @@ test('health exposes only public identity, store and discovery readiness', async
     assert.equal(res.body.privacy.identityProfileDataInToken, false)
     assert.equal(res.body.privacy.scoutCloudScope, 'goals_and_compact_runs_only')
     assert.equal(res.body.privacy.backgroundScoutProfileUpload, false)
+    assert.equal(res.body.privacy.submitRequestBodiesReturned, false)
+    assert.equal(res.body.privacy.submitResponseBodiesReturned, false)
+    assert.equal(res.body.observability.browserSubmitBodyLogging, false)
     assert.equal(res.body.observability.identityTokenLogging, false)
     assert.equal(res.body.observability.scoutPayloadLogging, false)
     assert.equal(res.body.observability.cronPayloadLogging, false)
