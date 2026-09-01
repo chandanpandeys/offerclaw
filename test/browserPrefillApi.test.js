@@ -5,6 +5,8 @@ import handler from '../api/browser/prefill.js'
 import { APPROVAL_SCOPE, BROWSER_ACTION, createBrowserTask } from '../src/browserTasks.js'
 import { FIELD_KIND } from '../src/formPlanner.js'
 
+const SESSION_ID = 'abcdefghijklmnopqrstuvwxyzABCDEFGH12345678'
+
 function mockResponse() {
   return {
     statusCode: 200,
@@ -24,9 +26,7 @@ async function withEnv(values, fn) {
     if (value == null) delete env[key]
     else env[key] = value
   }
-  try {
-    return await fn()
-  } finally {
+  try { return await fn() } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value == null) delete env[key]
       else env[key] = value
@@ -38,10 +38,7 @@ function request(body, origin = 'https://offerclaw.example') {
   return {
     method: 'POST',
     body,
-    headers: {
-      host: 'offerclaw.example',
-      origin,
-    },
+    headers: { host: 'offerclaw.example', origin },
   }
 }
 
@@ -66,16 +63,48 @@ function approvedFields() {
   }]
 }
 
+function reviewableWorkerResult(overrides = {}) {
+  return {
+    url: 'https://jobs.lever.co/example/abc',
+    connectorId: 'lever',
+    fields: [{
+      key: 'email',
+      status: 'filled',
+      kind: 'contact',
+      inputType: 'email',
+      evidenceSource: 'profile.email',
+      reason: 'filled_from_approved_evidence',
+      value: 'asha@example.com',
+    }],
+    session: {
+      id: SESSION_ID,
+      expiresAt: '2026-09-01T12:00:00Z',
+      ttlSeconds: 600,
+    },
+    preview: {
+      mimeType: 'image/png',
+      base64: 'iVBORw0KGgo=',
+      width: 1280,
+      height: 900,
+    },
+    metadata: {
+      filledCount: 1,
+      rejectedCount: 0,
+      networkFrozen: true,
+      submitAttempted: false,
+      workerVersion: '0.3.0',
+    },
+    ...overrides,
+  }
+}
+
 test('prefill rejects foreign-origin mutation before remote worker access', async () => {
   const originalFetch = globalThis.fetch
   let called = false
   globalThis.fetch = async () => { called = true; throw new Error('should not run') }
 
   try {
-    await withEnv({
-      BROWSER_WORKER_URL: 'https://worker.example',
-      BROWSER_WORKER_TOKEN: 'secret',
-    }, async () => {
+    await withEnv({ BROWSER_WORKER_URL: 'https://worker.example', BROWSER_WORKER_TOKEN: 'secret' }, async () => {
       const res = mockResponse()
       await handler(request({ task: prefillTask(), approvedFields: approvedFields() }, 'https://evil.example'), res)
       assert.equal(res.statusCode, 403)
@@ -93,10 +122,7 @@ test('invalid approved fields are rejected before worker access', async () => {
   globalThis.fetch = async () => { called = true; throw new Error('should not run') }
 
   try {
-    await withEnv({
-      BROWSER_WORKER_URL: 'https://worker.example',
-      BROWSER_WORKER_TOKEN: 'secret',
-    }, async () => {
+    await withEnv({ BROWSER_WORKER_URL: 'https://worker.example', BROWSER_WORKER_TOKEN: 'secret' }, async () => {
       const res = mockResponse()
       await handler(request({
         task: prefillTask(),
@@ -118,7 +144,7 @@ test('invalid approved fields are rejected before worker access', async () => {
   }
 })
 
-test('valid prefill forwards approved values only to fixed worker endpoint and sanitizes response', async () => {
+test('valid prefill forwards approved values only to fixed worker endpoint and returns review capability', async () => {
   const originalFetch = globalThis.fetch
   let captured = null
   globalThis.fetch = async (url, options) => {
@@ -127,34 +153,12 @@ test('valid prefill forwards approved values only to fixed worker endpoint and s
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({
-        url: 'https://jobs.lever.co/example/abc',
-        connectorId: 'lever',
-        fields: [{
-          key: 'email',
-          status: 'filled',
-          kind: 'contact',
-          inputType: 'email',
-          evidenceSource: 'profile.email',
-          reason: 'filled_from_approved_evidence',
-          value: 'asha@example.com',
-        }],
-        metadata: {
-          filledCount: 1,
-          rejectedCount: 0,
-          networkFrozen: true,
-          submitAttempted: false,
-          workerVersion: '0.2.0',
-        },
-      }),
+      json: async () => reviewableWorkerResult(),
     }
   }
 
   try {
-    await withEnv({
-      BROWSER_WORKER_URL: 'https://worker.example/api',
-      BROWSER_WORKER_TOKEN: 'worker-secret',
-    }, async () => {
+    await withEnv({ BROWSER_WORKER_URL: 'https://worker.example/api', BROWSER_WORKER_TOKEN: 'worker-secret' }, async () => {
       const res = mockResponse()
       await handler(request({ task: prefillTask(), approvedFields: approvedFields() }), res)
 
@@ -172,6 +176,8 @@ test('valid prefill forwards approved values only to fixed worker endpoint and s
       assert.equal(Object.hasOwn(res.body.prefill.fields[0], 'value'), false)
       assert.equal(res.body.prefill.metadata.networkFrozen, true)
       assert.equal(res.body.prefill.metadata.submitAttempted, false)
+      assert.equal(res.body.prefill.session.id, SESSION_ID)
+      assert.equal(res.body.prefill.preview.mimeType, 'image/png')
       assert.equal(res.headers['cache-control'], 'no-store')
     })
   } finally {
@@ -185,23 +191,36 @@ test('worker policy violation is rejected even after an otherwise successful res
     ok: true,
     status: 200,
     headers: new Headers({ 'content-type': 'application/json' }),
-    json: async () => ({
-      url: 'https://jobs.lever.co/example/abc',
-      connectorId: 'lever',
-      fields: [],
-      metadata: { networkFrozen: false, submitAttempted: false },
-    }),
+    json: async () => reviewableWorkerResult({ metadata: { networkFrozen: false, submitAttempted: false } }),
   })
 
   try {
-    await withEnv({
-      BROWSER_WORKER_URL: 'https://worker.example',
-      BROWSER_WORKER_TOKEN: 'secret',
-    }, async () => {
+    await withEnv({ BROWSER_WORKER_URL: 'https://worker.example', BROWSER_WORKER_TOKEN: 'secret' }, async () => {
       const res = mockResponse()
       await handler(request({ task: prefillTask(), approvedFields: approvedFields() }), res)
       assert.equal(res.statusCode, 502)
       assert.equal(res.body.error, 'browser_worker_prefill_policy_violation')
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('ephemeral prefill without retained review session and preview is rejected', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => reviewableWorkerResult({ session: null, preview: null }),
+  })
+
+  try {
+    await withEnv({ BROWSER_WORKER_URL: 'https://worker.example', BROWSER_WORKER_TOKEN: 'secret' }, async () => {
+      const res = mockResponse()
+      await handler(request({ task: prefillTask(), approvedFields: approvedFields() }), res)
+      assert.equal(res.statusCode, 502)
+      assert.equal(res.body.error, 'browser_worker_prefill_review_missing')
     })
   } finally {
     globalThis.fetch = originalFetch
