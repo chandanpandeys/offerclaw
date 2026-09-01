@@ -15,6 +15,10 @@ The server has a synced scout goal's role/query, location, freshness window, cad
 
 That is one daily invocation at 03:00 UTC. The endpoint accepts only `GET` and requires Vercel's `Authorization: Bearer <CRON_SECRET>` header.
 
+Background `daily` cadence means **at most one successful discovery per UTC calendar day**, not “exactly 24 hours after the previous run.” After any successful run, the next background due time becomes 00:00 UTC on the following day. This keeps the fixed 03:00 UTC production cron reliable even if the user manually runs the same scout late in the previous day. A manual run before that day's cron counts as that day's run, so the 03:00 invocation will not duplicate it.
+
+The interactive Scout Center due indicator remains a rolling 24-hour convenience signal; only the server scheduler uses the UTC-calendar-day rule.
+
 `CRON_SECRET` must be configured server-side and is never returned by the health endpoint.
 
 ## How a device becomes scheduled

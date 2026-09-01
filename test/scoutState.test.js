@@ -5,7 +5,9 @@ import {
   MAX_SCOUT_GOALS,
   MAX_SCOUT_RUNS,
   SCOUT_RUN_MODE,
+  isBackgroundScoutDue,
   mergeScoutStates,
+  nextBackgroundScoutDueAt,
   nextScoutStateDueAt,
   normalizeScoutRun,
   normalizeScoutState,
@@ -91,7 +93,39 @@ test('background discovery can never retain a personalized match score', () => {
   assert.equal(run.results[0].matchScore, null)
 })
 
-test('state due time uses the earliest enabled daily goal and ignores manual goals', () => {
+test('background daily cadence advances to the next UTC calendar day', () => {
+  const lateManualRun = {
+    id: 'goal-late',
+    query: 'AI Engineer',
+    cadence: 'daily',
+    enabled: true,
+    createdAt: '2026-09-01T08:00:00Z',
+    updatedAt: '2026-09-01T20:00:00Z',
+    lastRunAt: '2026-09-01T20:00:00Z',
+  }
+
+  assert.equal(nextBackgroundScoutDueAt(lateManualRun), '2026-09-02T00:00:00.000Z')
+  assert.equal(isBackgroundScoutDue(lateManualRun, new Date('2026-09-01T23:59:59Z')), false)
+  assert.equal(isBackgroundScoutDue(lateManualRun, new Date('2026-09-02T03:00:00Z')), true)
+})
+
+test('a manual run before the daily cron counts for that UTC day', () => {
+  const preCronRun = {
+    id: 'goal-pre-cron',
+    query: 'AI Engineer',
+    cadence: 'daily',
+    enabled: true,
+    createdAt: '2026-09-01T08:00:00Z',
+    updatedAt: '2026-09-02T01:00:00Z',
+    lastRunAt: '2026-09-02T01:00:00Z',
+  }
+
+  assert.equal(nextBackgroundScoutDueAt(preCronRun), '2026-09-03T00:00:00.000Z')
+  assert.equal(isBackgroundScoutDue(preCronRun, new Date('2026-09-02T03:00:00Z')), false)
+  assert.equal(isBackgroundScoutDue(preCronRun, new Date('2026-09-03T03:00:00Z')), true)
+})
+
+test('state due time uses earliest UTC-day boundary and ignores manual goals', () => {
   const state = {
     goals: [
       {
@@ -121,7 +155,7 @@ test('state due time uses the earliest enabled daily goal and ignores manual goa
     runs: [],
   }
 
-  assert.equal(nextScoutStateDueAt(state), '2026-09-01T02:00:00.000Z')
+  assert.equal(nextScoutStateDueAt(state), '2026-09-01T00:00:00.000Z')
   assert.equal(nextScoutStateDueAt({ goals: [{ id: 'manual', query: 'Only', cadence: 'manual' }] }), null)
 })
 

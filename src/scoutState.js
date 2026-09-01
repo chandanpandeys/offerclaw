@@ -1,4 +1,4 @@
-import { createScoutGoal, nextScoutDueAt } from './scoutGoals.js'
+import { createScoutGoal } from './scoutGoals.js'
 
 export const SCOUT_STATE_VERSION = 1
 export const MAX_SCOUT_GOALS = 12
@@ -117,10 +117,36 @@ export function normalizeScoutState(input = {}, now = new Date()) {
   }
 }
 
+function nextUtcDayStart(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (!Number.isFinite(date.getTime())) return null
+  return new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate() + 1,
+  )).toISOString()
+}
+
+export function nextBackgroundScoutDueAt(goalInput = {}) {
+  const goal = createScoutGoal(
+    goalInput,
+    goalInput.updatedAt || goalInput.createdAt || new Date(),
+  )
+  if (!goal.enabled || goal.cadence !== 'daily') return null
+  if (!goal.lastRunAt) return goal.createdAt
+  return nextUtcDayStart(goal.lastRunAt)
+}
+
+export function isBackgroundScoutDue(goalInput = {}, now = new Date()) {
+  const dueAt = nextBackgroundScoutDueAt(goalInput)
+  if (!dueAt) return false
+  return new Date(dueAt).getTime() <= new Date(now).getTime()
+}
+
 export function nextScoutStateDueAt(stateInput = {}) {
   const state = normalizeScoutState(stateInput, stateInput.updatedAt || new Date())
   const dueTimes = state.goals
-    .map(goal => nextScoutDueAt(goal))
+    .map(goal => nextBackgroundScoutDueAt(goal))
     .filter(Boolean)
     .map(value => new Date(value).getTime())
     .filter(Number.isFinite)
