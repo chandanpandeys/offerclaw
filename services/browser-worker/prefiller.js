@@ -196,6 +196,7 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
 
   let retained = false
   let networkFrozen = false
+  let browserOffline = false
   let blockedWriteRequests = 0
   let blockedAfterFreeze = 0
   let blockedCrossOriginDocuments = 0
@@ -270,7 +271,12 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
       decision: prefillDecision(approved, liveFields),
     }))
 
+    // This is the privacy barrier. Route interception blocks page-originated HTTP(S)
+    // while Playwright offline mode disables the browser network stack before any
+    // approved candidate value is written into the live page.
     networkFrozen = true
+    await context.setOffline(true)
+    browserOffline = true
 
     const controls = page.locator('input, textarea, select, [contenteditable="true"]')
     const fields = []
@@ -340,6 +346,7 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
         filledCount,
         rejectedCount,
         networkFrozen: true,
+        browserOffline,
         submitAttempted: false,
         blockedWriteRequests,
         blockedAfterFreeze,
