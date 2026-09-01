@@ -50,7 +50,7 @@ async function cleanup(fixture) {
   await fixture.close()
 }
 
-test('supervised prefill retains frozen review session and blocks post-write exfiltration and submit', async () => {
+test('supervised prefill retains frozen offline review session and blocks post-write exfiltration and submit', async () => {
   const fixture = await testServer()
   try {
     const result = await prefillApplicationPage({
@@ -80,6 +80,7 @@ test('supervised prefill retains frozen review session and blocks post-write exf
     }, { timeoutMs: 10_000 })
 
     assert.equal(result.metadata.networkFrozen, true)
+    assert.equal(result.metadata.browserOffline, true)
     assert.equal(result.metadata.submitAttempted, false)
     assert.equal(result.metadata.filledCount, 2)
     assert.equal(result.metadata.rejectedCount, 0)
@@ -126,6 +127,7 @@ test('live label or kind changes are rejected before writing that field', async 
       }],
     }, { timeoutMs: 10_000 })
 
+    assert.equal(result.metadata.browserOffline, true)
     assert.equal(result.metadata.filledCount, 0)
     assert.equal(result.metadata.rejectedCount, 1)
     assert.equal(result.fields[0].status, 'rejected')
