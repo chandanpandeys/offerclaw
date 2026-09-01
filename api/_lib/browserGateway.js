@@ -1,7 +1,9 @@
 import { BROWSER_ACTION, APPROVAL_SCOPE, validateBrowserTask } from '../../src/browserTasks.js'
+import { validateApprovedPrefillFields } from '../../src/prefillContract.js'
 
 const MAX_FIELDS = 120
 const MAX_OPTIONS = 80
+const WORKER_PREFILL_CONNECTORS = Object.freeze(new Set(['greenhouse', 'lever', 'ashby']))
 
 function clean(value, max = 500) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -38,9 +40,11 @@ export function getBrowserWorkerConfig(env = {}) {
 export function publicBrowserWorkerRuntime(config) {
   return {
     configured: Boolean(config?.configured),
-    mode: 'inspection_only',
+    mode: 'inspection_and_supervised_prefill',
     taskVersion: 1,
     pageContentTrust: 'untrusted',
+    prefillAllowed: true,
+    submitAllowed: false,
   }
 }
 
@@ -54,6 +58,30 @@ export function validateInspectionTask(task) {
     return { decision: 'block', reason: 'inspection_endpoint_scope_mismatch' }
   }
   return validation
+}
+
+export function validatePrefillTask(task, approvedFields) {
+  const validation = validateBrowserTask(task)
+  if (validation.decision !== 'allow') return { ...validation, fields: [] }
+  if (task.action !== BROWSER_ACTION.PREFILL_APPLICATION) {
+    return { decision: 'block', reason: 'prefill_endpoint_action_mismatch', fields: [] }
+  }
+  if (task.approvalScope !== APPROVAL_SCOPE.PREFILL_ONLY) {
+    return { decision: 'block', reason: 'prefill_endpoint_scope_mismatch', fields: [] }
+  }
+  if (!WORKER_PREFILL_CONNECTORS.has(task.connectorId)) {
+    return { decision: 'block', reason: 'prefill_connector_not_enabled', fields: [] }
+  }
+
+  const fieldValidation = validateApprovedPrefillFields(approvedFields)
+  if (!fieldValidation.ok) {
+    return { decision: 'block', reason: fieldValidation.reason, fields: [] }
+  }
+
+  return {
+    ...validation,
+    fields: fieldValidation.fields,
+  }
 }
 
 function normalizeOptions(options) {
@@ -111,6 +139,44 @@ export function normalizeInspectionResult(payload) {
   }
 }
 
+function normalizePrefillField(field) {
+  const status = ['filled', 'rejected', 'skipped'].includes(field?.status) ? field.status : 'rejected'
+  return {
+    key: clean(field?.key, 180) || null,
+    status,
+    kind: clean(field?.kind, 60) || null,
+    inputType: clean(field?.inputType, 60) || null,
+    evidenceSource: clean(field?.evidenceSource, 120) || null,
+    reason: clean(field?.reason, 180) || null,
+  }
+}
+
+export function normalizePrefillResult(payload) {
+  const fields = Array.isArray(payload?.fields)
+    ? payload.fields.slice(0, 40).map(normalizePrefillField)
+    : []
+
+  return {
+    version: 1,
+    pageContentTrust: 'untrusted',
+    url: clean(payload?.url, 2_000) || null,
+    connectorId: clean(payload?.connectorId, 60) || null,
+    fields,
+    checkpoints: {
+      captchaDetected: Boolean(payload?.checkpoints?.captchaDetected),
+      twoFactorDetected: Boolean(payload?.checkpoints?.twoFactorDetected),
+      loginRequired: Boolean(payload?.checkpoints?.loginRequired),
+    },
+    metadata: {
+      filledCount: Number.isInteger(Number(payload?.metadata?.filledCount)) ? Number(payload.metadata.filledCount) : 0,
+      rejectedCount: Number.isInteger(Number(payload?.metadata?.rejectedCount)) ? Number(payload.metadata.rejectedCount) : 0,
+      networkFrozen: Boolean(payload?.metadata?.networkFrozen),
+      submitAttempted: Boolean(payload?.metadata?.submitAttempted),
+      workerVersion: clean(payload?.metadata?.workerVersion, 80) || null,
+    },
+  }
+}
+
 export function buildWorkerInspectRequest(task, requestId) {
   return {
     version: 1,
@@ -128,6 +194,34 @@ export function buildWorkerInspectRequest(task, requestId) {
     policy: {
       pageContentTrust: 'untrusted',
       writesAllowed: false,
+      navigationScope: 'task_origin_only',
+    },
+  }
+}
+
+export function buildWorkerPrefillRequest(task, approvedFields, requestId) {
+  const validation = validatePrefillTask(task, approvedFields)
+  if (validation.decision !== 'allow') throw new Error(validation.reason || 'invalid_prefill_task')
+
+  return {
+    version: 1,
+    requestId: clean(requestId, 120),
+    task: {
+      version: task.version,
+      connectorId: task.connectorId,
+      action: BROWSER_ACTION.PREFILL_APPLICATION,
+      jobUrl: task.jobUrl,
+      jobId: task.jobId || null,
+      evidenceSnapshotId: task.evidenceSnapshotId || null,
+      approvalScope: APPROVAL_SCOPE.PREFILL_ONLY,
+      requestedBy: task.requestedBy || 'user',
+    },
+    approvedFields: validation.fields,
+    policy: {
+      pageContentTrust: 'untrusted',
+      domWritesAllowed: true,
+      networkAfterPrefillAllowed: false,
+      submitAllowed: false,
       navigationScope: 'task_origin_only',
     },
   }

@@ -1,18 +1,17 @@
 # Browser worker gateway
 
-OfferClaw's web runtime now defines a narrow gateway for a future dedicated browser worker.
+OfferClaw's web runtime exposes a narrow authenticated gateway to the dedicated Playwright worker. It is **not** a generic browser-control API.
 
-The gateway is intentionally **inspection-only**. It does not expose a generic browser-control endpoint and it does not prefill or submit application forms.
-
-## Endpoint
+## Endpoints
 
 ```text
 POST /api/browser/inspect
+POST /api/browser/prefill
 ```
 
-The endpoint accepts one validated OfferClaw browser task whose action is exactly `inspect_form` and whose approval scope is exactly `inspect_only`.
+Inspection remains read-only and requires `inspect_form + inspect_only`.
 
-Any prefill or submit task is rejected before a remote worker is called.
+Prefill requires `prefill_application + prefill_only`, an explicit reviewed field set, and a Greenhouse/Lever/Ashby target. Final submission is not exposed by the gateway.
 
 ## Server configuration
 
@@ -22,98 +21,68 @@ BROWSER_WORKER_TOKEN=...
 BROWSER_WORKER_TIMEOUT_MS=20000
 ```
 
-These variables are server-only and must never use a `VITE_` prefix.
+These variables are server-only and must never use a `VITE_` prefix. The worker URL must use HTTPS. `/api/health` reports capability readiness but never the URL or bearer token.
 
-The worker URL must be HTTPS. `/api/health` reports only whether the worker is configured and that the current mode is `inspection_only`; it never exposes the worker URL or bearer token.
+## Inspection boundary
 
-## Request boundary
+Before `/api/browser/inspect` forwards anything, OfferClaw verifies the browser-task version, exact action/scope, HTTPS target, connector allowlist, and hostname/connector match. The gateway forwards only to `${BROWSER_WORKER_URL}/v1/inspect`, disables redirects, and sends a policy with page content marked untrusted, writes disabled, and navigation limited to the task origin.
 
-Before forwarding a request, OfferClaw verifies:
+The response is normalized to bounded field metadata and checkpoint flags. Raw HTML, arbitrary page instructions, worker metadata, and field values are discarded.
 
-- supported browser-task version
-- action is `inspect_form`
-- approval scope is `inspect_only`
-- target is HTTPS
-- connector is in the explicit ATS browser allowlist
-- declared connector matches the target hostname
+## Supervised prefill boundary
 
-Generic `employer_site` targets are **not** in the first worker allowlist. OfferClaw labels unknown non-board domains as likely employer routes for source intelligence, but that heuristic is not strong enough to grant a remote browser access to an arbitrary origin.
+`/api/browser/prefill` adds a second independent validation layer. It requires:
 
-A future employer-site worker path needs an explicit verified-domain mechanism.
+- same-origin browser request
+- `prefill_application`
+- `prefill_only`
+- Greenhouse, Lever, or Ashby destination
+- no more than 40 reviewed fields
+- identity/contact/location/profile-link field kinds only
+- safe text/email/tel/url/search/textarea/select controls only
+- direct `profile.*` evidence for every value
 
-## Worker call security
+Salary, work authorization, screening answers, file uploads, demographic data, legal declarations, consent, CAPTCHA, 2FA, checkboxes/radios, and unknown controls cannot enter this protocol.
 
-The gateway forwards to only:
+The gateway forwards the approved values only to the fixed `${BROWSER_WORKER_URL}/v1/prefill` endpoint using the server-side bearer token. Candidate values are never written to gateway logs and are removed from the normalized worker response.
 
-```text
-${BROWSER_WORKER_URL}/v1/inspect
-```
-
-and attaches the bearer token server-side.
-
-Outbound redirects are disabled. This prevents a compromised/misconfigured worker endpoint from redirecting an authenticated request to another origin.
-
-The forwarded policy says:
+The worker policy requires:
 
 ```json
 {
   "pageContentTrust": "untrusted",
-  "writesAllowed": false,
+  "domWritesAllowed": true,
+  "networkAfterPrefillAllowed": false,
+  "submitAllowed": false,
   "navigationScope": "task_origin_only"
 }
 ```
 
-If the worker reports that inspection ended on a different origin than the approved job URL, OfferClaw rejects the result.
+The gateway rejects a successful-looking worker response if it reports a different origin, if network freeze is false, or if submit was attempted.
+
+## Worker-side revalidation
+
+The dedicated worker does not trust the gateway blindly. It validates the task/field contract again, loads the page under the read-only request policy, detects CAPTCHA/2FA/login checkpoints, and re-inspects every approved control.
+
+A live control must still match the approved key, label, type, and safe classification. Changed/missing/ambiguous/disabled/readonly/sensitive controls are rejected.
+
+Before the first candidate value is written, all HTTP(S) traffic is frozen and WebSocket connections are prevented from connecting to their servers. This blocks page JavaScript from transmitting values from `input`/`change` listeners. The worker never clicks submit under the prefill scope.
 
 ## Response boundary
 
-The gateway does not forward arbitrary worker output to the frontend.
+The prefill response contains only:
 
-It keeps only bounded form metadata:
+- approved field key
+- `filled` / `rejected` status
+- kind and input type
+- evidence-source reference
+- reason code
+- counts and policy metadata
 
-- URL/title/connector ID
-- field ID/name/label/type/placeholder/autocomplete
-- required/disabled/readonly flags
-- bounded select options
-- CAPTCHA / 2FA / login checkpoint flags
-- field count, inspection timestamp and worker version
-
-Raw HTML, screenshots encoded as data, script content, arbitrary page instructions, model prompts, worker secrets and unknown metadata keys are discarded.
-
-The returned object is always marked:
-
-```text
-pageContentTrust: untrusted
-```
-
-The local form planner can then convert these discovered controls into `prefill`, `review`, `manual`, or `unresolved` decisions using candidate evidence already stored in the user's browser.
-
-## Intended worker implementation
-
-The dedicated worker should begin with deterministic Playwright inspection:
-
-1. navigate only to the approved task URL
-2. stay on the approved origin
-3. detect application form controls using DOM/accessibility metadata
-4. return normalized field metadata
-5. make no form writes
-6. surface CAPTCHA/login/2FA checkpoints
-7. close/expire the session after a short bounded lifetime
-
-An AI recovery layer can later help with unusual layouts, but page content cannot alter the task policy.
+It never echoes candidate values.
 
 ## Why a dedicated worker
 
-Browser sessions are operationally different from the main Vercel API:
+Browser binaries, isolation, egress control, concurrency, and application-page risk are operationally different from the main Vercel Functions runtime. Keeping browser execution behind a narrow authenticated service lets OfferClaw strengthen that boundary independently.
 
-- browser binaries are large
-- sessions can be longer-lived
-- isolation and egress controls matter
-- CAPTCHA/auth checkpoints require resumable sessions
-- concurrency and resource limits should be managed independently
-
-Keeping this behind a narrow authenticated gateway lets OfferClaw use a managed browser provider, isolated container service, or self-hosted worker later without exposing browser-control credentials to the web client.
-
-## Next step
-
-Implement a minimal worker service whose only route is `POST /v1/inspect`, then validate it against controlled Greenhouse/Lever/Ashby test pages before enabling any real user workflow.
+Final application submission remains a separate future protocol and approval decision. LinkedIn write automation remains blocked unless an authorized integration exists.
