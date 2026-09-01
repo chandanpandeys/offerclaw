@@ -4,15 +4,20 @@ import assert from 'node:assert/strict'
 import {
   buildWorkerInspectRequest,
   buildWorkerPrefillRequest,
+  buildWorkerSubmitRequest,
   getBrowserWorkerConfig,
   normalizeInspectionResult,
   normalizePrefillResult,
+  normalizeSubmitOutcome,
   publicBrowserWorkerRuntime,
   validateInspectionTask,
   validatePrefillTask,
+  validateSubmitApproval,
 } from '../api/_lib/browserGateway.js'
 import { APPROVAL_SCOPE, BROWSER_ACTION, createBrowserTask } from '../src/browserTasks.js'
 import { FIELD_KIND } from '../src/formPlanner.js'
+
+const SESSION_ID = 'abcdefghijklmnopqrstuvwxyzABCDEFGH12345678'
 
 function approvedName() {
   return [{
@@ -23,6 +28,24 @@ function approvedName() {
     value: 'Asha Rao',
     evidenceSource: 'profile.name',
   }]
+}
+
+function submitApproval(overrides = {}) {
+  const now = Date.now()
+  return {
+    version: 1,
+    id: 'approval-gateway-test',
+    scope: 'submit_once',
+    decision: 'explicit_user_approval',
+    connectorId: 'lever',
+    jobId: 'job-1',
+    jobUrl: 'https://jobs.lever.co/example/abc',
+    sessionId: SESSION_ID,
+    approvedAt: new Date(now - 1_000).toISOString(),
+    expiresAt: new Date(now + 120_000).toISOString(),
+    consumed: false,
+    ...overrides,
+  }
 }
 
 test('worker runtime requires both an HTTPS base URL and server token', () => {
@@ -46,12 +69,13 @@ test('public worker runtime exposes capabilities but never URL or bearer token',
 
   assert.deepEqual(runtime, {
     configured: true,
-    mode: 'inspection_and_supervised_prefill',
+    mode: 'inspection_prefill_submit_once',
     taskVersion: 1,
     pageContentTrust: 'untrusted',
     prefillAllowed: true,
     prefillReviewSession: true,
-    submitAllowed: false,
+    submitOnceAllowed: true,
+    submitAllowed: true,
   })
   assert.equal(JSON.stringify(runtime).includes('worker.example'), false)
   assert.equal(JSON.stringify(runtime).includes('top-secret'), false)
@@ -135,6 +159,23 @@ test('worker prefill request freezes post-write network and cannot authorize sub
   assert.equal(request.approvedFields[0].value, 'Asha Rao')
 })
 
+test('submit request is reconstructed from short-lived approval and keeps connector-only network policy', () => {
+  const approval = submitApproval()
+  assert.equal(validateSubmitApproval(approval).ok, true)
+  const request = buildWorkerSubmitRequest(approval, 'request-submit')
+
+  assert.equal(request.task.action, BROWSER_ACTION.SUBMIT_APPLICATION)
+  assert.equal(request.task.approvalScope, APPROVAL_SCOPE.SUBMIT_ONCE)
+  assert.equal(request.task.connectorId, 'lever')
+  assert.equal(request.approval.id, approval.id)
+  assert.equal(request.policy.submitAllowed, true)
+  assert.equal(request.policy.singleSubmitAttempt, true)
+  assert.equal(request.policy.browserMustStartOffline, true)
+  assert.equal(request.policy.networkPolicy, 'connector_submission_only')
+  assert.equal(Object.hasOwn(request, 'profile'), false)
+  assert.equal(Object.hasOwn(request, 'resume'), false)
+})
+
 test('inspection results are bounded to field metadata and drop arbitrary worker payload', () => {
   const inspection = normalizeInspectionResult({
     url: 'https://jobs.lever.co/example/abc',
@@ -168,7 +209,6 @@ test('inspection results are bounded to field metadata and drop arbitrary worker
 })
 
 test('prefill result keeps only review session capability and bounded PNG preview metadata', () => {
-  const sessionId = 'abcdefghijklmnopqrstuvwxyzABCDEFGH12345678'
   const result = normalizePrefillResult({
     url: 'https://jobs.lever.co/example/abc',
     connectorId: 'lever',
@@ -182,7 +222,7 @@ test('prefill result keeps only review session capability and bounded PNG previe
       value: 'asha@example.com',
       rawHtml: '<input>',
     }],
-    session: { id: sessionId, expiresAt: '2026-09-01T12:00:00Z', ttlSeconds: 600, internal: 'drop-me' },
+    session: { id: SESSION_ID, expiresAt: '2026-09-01T12:00:00Z', ttlSeconds: 600, internal: 'drop-me' },
     preview: { mimeType: 'image/png', base64: 'iVBORw0KGgo=', width: 1280, height: 900, secret: 'drop-me' },
     metadata: {
       filledCount: 1,
@@ -190,7 +230,7 @@ test('prefill result keeps only review session capability and bounded PNG previe
       networkFrozen: true,
       browserOffline: true,
       submitAttempted: false,
-      workerVersion: '0.3.0',
+      workerVersion: '0.4.0',
       secret: 'drop-me',
     },
   })
@@ -198,7 +238,7 @@ test('prefill result keeps only review session capability and bounded PNG previe
   assert.equal(result.fields[0].status, 'filled')
   assert.equal(Object.hasOwn(result.fields[0], 'value'), false)
   assert.equal(Object.hasOwn(result.fields[0], 'rawHtml'), false)
-  assert.equal(result.session.id, sessionId)
+  assert.equal(result.session.id, SESSION_ID)
   assert.equal(Object.hasOwn(result.session, 'internal'), false)
   assert.equal(result.preview.mimeType, 'image/png')
   assert.equal(Object.hasOwn(result.preview, 'secret'), false)
@@ -206,6 +246,42 @@ test('prefill result keeps only review session capability and bounded PNG previe
   assert.equal(result.metadata.browserOffline, true)
   assert.equal(result.metadata.submitAttempted, false)
   assert.equal(Object.hasOwn(result.metadata, 'secret'), false)
+})
+
+test('submit outcome is bounded and drops arbitrary worker payload and candidate values', () => {
+  const outcome = normalizeSubmitOutcome({
+    status: 'submitted_confirmed',
+    attempted: true,
+    confirmed: true,
+    connectorId: 'lever',
+    approvalId: 'approval-gateway-test',
+    sessionId: SESSION_ID,
+    finalUrl: 'https://jobs.lever.co/example/abc/success',
+    confirmationSignal: 'thank_you',
+    blockers: [{ code: 'ignored', detail: 'safe detail', candidateValue: 'asha@example.com' }],
+    network: {
+      allowedRequestCount: 3,
+      postRequestCount: 1,
+      navigationRequestCount: 1,
+      preflightRequestCount: 0,
+      blockedRequestCount: 4,
+      lastPostStatus: 200,
+      requestBody: 'asha@example.com',
+    },
+    sessionClosed: true,
+    completedAt: '2026-09-01T12:00:00Z',
+    rawHtml: '<h1>private</h1>',
+    candidate: { email: 'asha@example.com' },
+  })
+
+  assert.equal(outcome.status, 'submitted_confirmed')
+  assert.equal(outcome.network.postRequestCount, 1)
+  assert.equal(outcome.network.lastPostStatus, 200)
+  assert.equal(outcome.sessionClosed, true)
+  assert.equal(Object.hasOwn(outcome.network, 'requestBody'), false)
+  assert.equal(Object.hasOwn(outcome, 'rawHtml'), false)
+  assert.equal(Object.hasOwn(outcome, 'candidate'), false)
+  assert.equal(JSON.stringify(outcome).includes('asha@example.com'), false)
 })
 
 test('inspection result field count is bounded', () => {

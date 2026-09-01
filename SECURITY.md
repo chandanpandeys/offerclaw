@@ -29,15 +29,29 @@ The optional scout cloud store is deliberately narrower: saved scout goals and c
 
 ## Supervised browser automation
 
-Browser inspection and prefill run behind a separate authenticated worker. The first live worker allowlist is Greenhouse, Lever and Ashby.
+Browser inspection, prefill and submit-once execution run behind a separate authenticated worker. The first live worker allowlist is Greenhouse, Lever and Ashby.
 
 Inspection is read-only. Supervised prefill requires a fresh inspection review and explicit user confirmation. Only direct profile-backed identity/contact/location/profile-link values can enter the prefill protocol; salary, work authorization, screening answers, file uploads, demographic/legal/consent fields, CAPTCHA and 2FA are excluded.
 
-Before approved candidate values are written into the remote DOM, the Playwright context freezes HTTP(S) traffic and prevents WebSocket server connections. The `prefill_only` protocol has no submit capability.
+Before approved candidate values are written into the remote DOM, the worker freezes HTTP(S) routing, prevents WebSocket server connections, and switches the Playwright context offline. The `prefill_only` scope still has no submit capability.
 
-A successful prefill creates a short-lived retained browser context and a PNG screenshot preview so the user can review what was filled. The screenshot can contain the approved candidate values. It is returned only to the active in-memory UI review state; OfferClaw does not persist the preview in `localStorage`, scout Redis state, analytics, or application history. Closing/cancelling the review destroys the retained worker context; abandoned sessions expire automatically and are also destroyed on worker shutdown.
+A successful prefill creates a short-lived retained browser context and a PNG screenshot preview so the user can review what was filled. The screenshot can contain approved candidate values. It is returned only to active in-memory UI review state; OfferClaw does not persist the preview in `localStorage`, scout Redis state, analytics, or application history. Closing/cancelling the review destroys the retained worker context; abandoned sessions expire automatically and are also destroyed on worker shutdown.
 
-The browser-worker bearer token, worker URL and internal session records are never returned to page JavaScript. The frontend receives only an opaque random session capability required to cancel its own retained review session.
+### Final submit boundary
+
+Final submission requires a separate deterministic readiness result and a new short-lived `submit_once` approval. The approval carries no resume/profile/form values and is bound to the exact ATS connector, job URL and retained browser session.
+
+The web gateway and worker validate the approval independently. Approval IDs are one-time capabilities within a retained session; a previously used approval ID cannot be replayed even when the browser was safely refrozen before any application request occurred.
+
+Immediately before submit, the worker checks live required controls, CAPTCHA/2FA/login state, rejected prefill results, URL binding and submit-control ambiguity again.
+
+Only then may the worker temporarily re-enable a connector-scoped network policy. The allowlist is limited to the documented Greenhouse/Lever/Ashby hosted job/application families. The submit window permits connector-owned POST requests, OPTIONS preflight, and first-party top-level document navigation. Ordinary fetch/XHR GETs, third-party analytics, unrelated ATS hosts and WebSockets remain blocked. The worker clicks one submit control exactly once and never automatically retries.
+
+If an application POST or post-click navigation occurs, candidate data is treated as potentially transmitted. The retained browser session is destroyed after bounded outcome capture regardless of success, failure or uncertainty. No request body, response body, candidate field value or raw page HTML is returned or logged.
+
+OfferClaw does not request employer-side Greenhouse/Lever/Ashby API credentials to submit arbitrary candidates. Employer/integration APIs remain separate from the applicant-facing hosted form workflow.
+
+The browser-worker bearer token, worker URL and internal session records are never returned to page JavaScript. The frontend receives only opaque session/approval capabilities required for the explicitly approved action.
 
 ## API protections
 
@@ -49,7 +63,7 @@ For a public high-traffic deployment, add platform-level rate limiting / firewal
 
 ## Reporting a vulnerability
 
-Please use a GitHub security advisory for vulnerabilities that could expose user data, provider credentials, retained browser sessions, or enable abusive provider usage. Avoid posting exploitable credential leaks in a public issue.
+Please use a GitHub security advisory for vulnerabilities that could expose user data, provider credentials, retained browser sessions, submit approvals, or enable abusive provider usage. Avoid posting exploitable credential leaks in a public issue.
 
 For ordinary non-sensitive bugs, use a normal GitHub issue.
 

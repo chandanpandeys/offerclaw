@@ -1,32 +1,33 @@
 # OfferClaw Connector Architecture
 
-OfferClaw is moving toward an OpenClaw-style model: one persistent career agent, many replaceable connectors, explicit capabilities, durable state, and approval gates around external actions.
+OfferClaw follows an OpenClaw-style model: one persistent career agent, many replaceable connectors, explicit capabilities, durable state, and approval gates around external actions.
 
-A connector is a **capability contract**, not a claim that OfferClaw can automate a website.
+A connector is a **capability contract**, not a blanket claim that OfferClaw can automate a website.
 
 ## Capability states
 
 | State | Meaning |
 |---|---|
 | `native` | Implemented inside OfferClaw today. |
-| `handoff` | OfferClaw can prepare the action and open the external destination after user approval. |
-| `approval` | The connector can support the action only with explicit user approval. |
+| `handoff` | OfferClaw can prepare the action and open the external destination. |
+| `approval` | A tested executor exists, but the action requires explicit user approval. |
 | `planned` | Architecture supports the action but no safe executor exists yet. |
 | `blocked` | OfferClaw intentionally does not automate the action. |
-
-This distinction prevents the UI or agent planner from presenting future browser automation as if it already works.
 
 ## Current connector posture
 
 | Connector | Discovery | Prepare | Open apply | Prefill / submit | Outreach send |
 |---|---|---|---|---|---|
-| JSearch | Native | Native | Destination handoff | Planned by destination | N/A |
+| JSearch | Native | Native | Destination handoff | Depends on resolved destination | N/A |
 | LinkedIn | Handoff | Native | Handoff | **Blocked** | **Blocked** |
 | Indeed | Handoff | Native | Handoff | Planned approved integration | Planned approved integration |
 | Naukri | Handoff | Native | Handoff | Planned approved integration/browser worker | Planned |
 | Apna | Handoff | Native | Handoff | Planned approved integration/browser worker | Planned |
-| Greenhouse / Lever / Workday / Ashby / other ATS | Source-specific handoff | Native | Handoff | Browser-worker candidate | Planned |
-| Employer careers sites | Future direct ingestion + handoff | Native | Handoff | Browser-worker candidate | Planned |
+| Greenhouse | Native public feed when configured | Native | Handoff | **Approval — supervised worker** | Planned |
+| Lever | Native public feed when configured | Native | Handoff | **Approval — supervised worker** | Planned |
+| Ashby | Native public feed when configured | Native | Handoff | **Approval — supervised worker** | Planned |
+| Workday / SmartRecruiters / Workable / Jobvite / iCIMS / BambooHR | Source-specific handoff / future adapter | Native | Handoff | Planned browser worker | Planned |
+| Employer careers sites | Future direct ingestion + handoff | Native | Handoff | Planned verified-domain worker | Planned |
 | Demo | Native synthetic data | Native | Blocked | Blocked | Blocked |
 
 The exact registry used by the product lives in `src/connectors.js` and is protected by unit tests.
@@ -45,11 +46,11 @@ Research plus application drafting and outreach drafting. External actions remai
 
 ### Supervised Agent
 
-The default. OfferClaw can queue external handoffs and future browser-worker actions, but the user approves them.
+The default. OfferClaw may inspect and prefill supported ATS forms and can prepare a final submit action, but write actions remain behind explicit user approval.
 
 ### Autopilot
 
-Safe native actions may run automatically. Sensitive external actions such as final application submission and sending a message still require explicit approval, and connector-level blocks always win.
+Safe native actions may run automatically. Sensitive account-affecting actions such as final application submission and sending a message still require explicit approval, and connector-level blocks always win.
 
 ## Action lifecycle
 
@@ -59,28 +60,38 @@ User goal
   -> connector resolves from destination
   -> capability check
   -> autonomy policy check
-  -> action queue
+  -> inspection / evidence plan
   -> user approval when required
-  -> executor
-  -> completion / rejection / failure record
+  -> scoped executor
+  -> bounded outcome record
 ```
 
-The first executor is intentionally simple: approved URL handoff. It opens a platform or verification destination and records the action outcome. Browser form filling is a separate future executor rather than hidden inside the connector registry.
+The current executor stack is intentionally layered:
 
-## Browser worker direction
+1. approved URL handoff for platform/search/navigation actions;
+2. read-only Playwright inspection for Greenhouse/Lever/Ashby hosted application pages;
+3. network-frozen supervised prefill for direct profile-backed safe fields;
+4. separate short-lived `submit_once` approval and connector-scoped one-click final submission.
 
-A future browser worker should use deterministic browser automation first (for example Playwright), with AI recovery only where layout variability makes deterministic selectors insufficient.
+Prefill permission cannot imply submit permission.
 
-The worker must treat the following as manual checkpoints rather than obstacles to bypass:
+## Browser worker boundary
+
+The live worker currently enables Greenhouse, Lever and Ashby only. It uses deterministic Playwright automation first and treats page content as untrusted data.
+
+Manual/blocking checkpoints include:
 
 - CAPTCHA
 - two-factor authentication
-- legal declarations and attestations
+- login requirements introduced during the workflow
+- unresolved required fields
+- legal declarations and attestations not explicitly reviewed
 - demographic or sensitive-personal-data questions
-- consent screens
-- final submission where the connector/policy requires approval
+- consent screens not explicitly reviewed
 
-Browser automation should run against an explicit allowlist of connectors and actions. A new connector must not gain browser-write capability merely because its hostname is recognized.
+Before prefill, the browser is network-frozen and switched offline. Before final submit, the worker revalidates the retained form, consumes a fresh `submit_once` approval, and temporarily enables only connector-owned ATS submission traffic. There is no automatic retry; an attempted submission destroys the retained session after bounded outcome capture.
+
+A recognized hostname alone never grants browser-write permission.
 
 ## LinkedIn boundary
 
@@ -90,9 +101,7 @@ That boundary is part of the code and tests, not just documentation.
 
 ## Ingestion versus action
 
-Scrapling and similar experiments belong to **ingestion**: retrieving and normalizing permitted public job data.
-
-They are not application executors.
+Scrapling and similar experiments belong to **ingestion**: retrieving and normalizing permitted public job data. They are not application executors.
 
 ```text
 Ingestion
@@ -125,14 +134,12 @@ A connector should declare:
 - per-action capability states
 - a concise boundary note
 
-Then add tests for both connector resolution and any sensitive action policy. Do not add undocumented private APIs as production dependencies.
+A connector can move from `planned` to `approval` only after its executor has connector-specific policy and regression tests. Do not add undocumented private APIs as production dependencies.
 
 ## Next implementation milestones
 
-1. Native approved source adapters behind the connector interface.
-2. A Playwright browser-worker service for allowlisted ATS/employer application forms.
-3. Structured form-field planning and evidence-bound answer generation.
-4. A review screen showing every field before submission.
-5. OAuth email connector for application/follow-up workflows.
-6. Durable scheduled scouting outside the browser session.
-7. Connector health, success-rate and conversion analytics so weak adapters can be disabled automatically.
+1. Surface the tested `submit_once` executor in the supervised review UI with explicit final confirmation and bounded local outcome evidence.
+2. Add real-page connector fixtures/monitoring before expanding Greenhouse/Lever/Ashby assumptions.
+3. Add another ATS family only after connector-specific inspection, prefill and submit policy tests pass.
+4. Add approved OAuth email workflows for follow-up/outreach where appropriate.
+5. Improve durable scheduled scouting/notifications and connector health/conversion analytics.

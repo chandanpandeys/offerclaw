@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { validateInspectRequest, validatePrefillRequest, validateTargetUrl } from '../security.js'
+import { validateInspectRequest, validatePrefillRequest, validateSubmitRequest, validateTargetUrl } from '../security.js'
+
+const SESSION_ID = 'abcdefghijklmnopqrstuvwxyzABCDEFGH12345678'
 
 function inspectPayload(overrides = {}) {
   return {
@@ -50,6 +52,47 @@ function prefillPayload(overrides = {}) {
       networkAfterPrefillAllowed: false,
       submitAllowed: false,
       navigationScope: 'task_origin_only',
+      ...overrides.policy,
+    },
+  }
+}
+
+function submitPayload(overrides = {}) {
+  const now = Date.now()
+  const task = {
+    version: 1,
+    connectorId: 'greenhouse',
+    action: 'submit_application',
+    jobUrl: 'https://job-boards.greenhouse.io/example/jobs/123',
+    jobId: 'job-123',
+    approvalScope: 'submit_once',
+    ...overrides.task,
+  }
+  return {
+    version: 1,
+    requestId: 'req-submit',
+    task,
+    approval: {
+      version: 1,
+      id: 'approval-security-test',
+      scope: 'submit_once',
+      decision: 'explicit_user_approval',
+      connectorId: task.connectorId,
+      jobId: task.jobId,
+      jobUrl: task.jobUrl,
+      sessionId: SESSION_ID,
+      approvedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 120_000).toISOString(),
+      consumed: false,
+      ...overrides.approval,
+    },
+    policy: {
+      pageContentTrust: 'untrusted',
+      navigationScope: 'task_origin_only',
+      submitAllowed: true,
+      singleSubmitAttempt: true,
+      browserMustStartOffline: true,
+      networkPolicy: 'connector_submission_only',
       ...overrides.policy,
     },
   }
@@ -153,4 +196,31 @@ test('worker prefill rejects sensitive kinds and non-profile evidence', () => {
   }))
   assert.equal(preference.ok, false)
   assert.equal(preference.reason, 'prefill_direct_profile_evidence_required')
+})
+
+test('submit endpoint independently requires submit_once approval and connector-only network policy', () => {
+  const result = validateSubmitRequest(submitPayload())
+  assert.equal(result.ok, true)
+  assert.equal(result.connectorId, 'greenhouse')
+  assert.equal(result.approval.sessionId, SESSION_ID)
+  assert.equal(result.policy.singleSubmitAttempt, true)
+
+  assert.equal(validateSubmitRequest(submitPayload({ policy: { submitAllowed: false } })).reason, 'submit_permission_required')
+  assert.equal(validateSubmitRequest(submitPayload({ policy: { networkPolicy: 'unrestricted' } })).reason, 'connector_submit_network_policy_required')
+  assert.equal(validateSubmitRequest(submitPayload({ task: { approvalScope: 'prefill_only' } })).reason, 'submit_once_scope_required')
+})
+
+test('submit approval must remain bound to exact connector job and URL', () => {
+  assert.equal(
+    validateSubmitRequest(submitPayload({ approval: { jobUrl: 'https://job-boards.greenhouse.io/example/jobs/999' } })).reason,
+    'submit_approval_url_mismatch',
+  )
+  assert.equal(
+    validateSubmitRequest(submitPayload({ approval: { jobId: 'other-job' } })).reason,
+    'submit_approval_job_mismatch',
+  )
+  assert.equal(
+    validateSubmitRequest(submitPayload({ approval: { connectorId: 'lever' } })).reason,
+    'submit_approval_connector_url_mismatch',
+  )
 })

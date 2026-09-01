@@ -13,6 +13,9 @@
     "api/browser/prefill.js": {
       "maxDuration": 30
     },
+    "api/browser/submit.js": {
+      "maxDuration": 30
+    },
     "api/browser/prefill-session.js": {
       "maxDuration": 10
     },

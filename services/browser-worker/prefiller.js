@@ -8,8 +8,9 @@ import {
 } from '../../src/prefillContract.js'
 import { isSameOrigin } from './security.js'
 import { retainPrefillSession } from './sessionStore.js'
+import { evaluateSubmitNetworkRequest, MAX_SUBMIT_POST_REQUESTS } from './submitPolicy.js'
 
-export const PREFILL_WORKER_VERSION = '0.3.0'
+export const PREFILL_WORKER_VERSION = '0.4.0'
 
 let browserPromise = null
 
@@ -38,7 +39,7 @@ export async function closePrefillBrowser() {
   if (browser) await browser.close().catch(() => {})
 }
 
-async function discoverLiveFields(page) {
+export async function discoverLiveFields(page) {
   return page.locator('input, textarea, select, [contenteditable="true"]').evaluateAll(elements => {
     const normalize = (value, max = 500) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
 
@@ -115,7 +116,7 @@ async function discoverLiveFields(page) {
   })
 }
 
-async function detectCheckpoints(page) {
+export async function detectCheckpoints(page) {
   const captchaSelectors = [
     'iframe[src*="captcha" i]',
     'iframe[title*="captcha" i]',
@@ -195,12 +196,21 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
   })
 
   let retained = false
-  let networkFrozen = false
-  let browserOffline = false
   let blockedWriteRequests = 0
-  let blockedAfterFreeze = 0
   let blockedCrossOriginDocuments = 0
   const targetOrigin = validatedRequest.target.origin
+  const networkState = {
+    mode: 'loading',
+    browserOffline: false,
+    allowedSubmitRequests: 0,
+    submitPostRequests: 0,
+    submitNavigationRequests: 0,
+    submitPreflightRequests: 0,
+    blockedSubmitRequests: 0,
+    blockedAfterFreeze: 0,
+    maxSubmitPostRequests: MAX_SUBMIT_POST_REQUESTS,
+    requestPolicy: typeof options.submitRequestPolicy === 'function' ? options.submitRequestPolicy : null,
+  }
 
   try {
     await context.routeWebSocket(/.*/, async ws => {
@@ -218,9 +228,43 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
 
       if (!['http:', 'https:'].includes(url.protocol)) return route.abort('blockedbyclient')
 
-      if (networkFrozen) {
-        blockedAfterFreeze += 1
+      if (networkState.mode === 'frozen') {
+        networkState.blockedAfterFreeze += 1
         return route.abort('blockedbyclient')
+      }
+
+      if (networkState.mode === 'submit') {
+        const input = {
+          connectorId: validatedRequest.connectorId,
+          url: url.toString(),
+          method: request.method(),
+          resourceType: request.resourceType(),
+          navigationRequest: request.isNavigationRequest(),
+        }
+        const decision = networkState.requestPolicy
+          ? networkState.requestPolicy(input)
+          : evaluateSubmitNetworkRequest(input)
+
+        if (!decision?.allowed) {
+          networkState.blockedSubmitRequests += 1
+          return route.abort('blockedbyclient')
+        }
+
+        const verb = request.method().toUpperCase()
+        if (decision.write) {
+          if (networkState.submitPostRequests >= networkState.maxSubmitPostRequests) {
+            networkState.blockedSubmitRequests += 1
+            return route.abort('blockedbyclient')
+          }
+          networkState.submitPostRequests += 1
+        } else if (verb === 'OPTIONS') {
+          networkState.submitPreflightRequests += 1
+        } else if (request.isNavigationRequest() && request.resourceType() === 'document') {
+          networkState.submitNavigationRequests += 1
+        }
+
+        networkState.allowedSubmitRequests += 1
+        return route.continue()
       }
 
       const method = request.method().toUpperCase()
@@ -271,12 +315,9 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
       decision: prefillDecision(approved, liveFields),
     }))
 
-    // This is the privacy barrier. Route interception blocks page-originated HTTP(S)
-    // while Playwright offline mode disables the browser network stack before any
-    // approved candidate value is written into the live page.
-    networkFrozen = true
+    networkState.mode = 'frozen'
     await context.setOffline(true)
-    browserOffline = true
+    networkState.browserOffline = true
 
     const controls = page.locator('input, textarea, select, [contenteditable="true"]')
     const fields = []
@@ -327,6 +368,9 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
       targetOrigin,
       approvedFieldKeys: approvedValidation.fields.map(field => field.key),
       requestId: validatedRequest.requestId || null,
+      networkState,
+      prefillFields: fields,
+      checkpoints,
     })
     retained = true
 
@@ -346,10 +390,10 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
         filledCount,
         rejectedCount,
         networkFrozen: true,
-        browserOffline,
+        browserOffline: networkState.browserOffline,
         submitAttempted: false,
         blockedWriteRequests,
-        blockedAfterFreeze,
+        blockedAfterFreeze: networkState.blockedAfterFreeze,
         blockedCrossOriginDocuments,
         workerVersion: PREFILL_WORKER_VERSION,
       },
