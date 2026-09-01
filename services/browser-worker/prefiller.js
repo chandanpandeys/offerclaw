@@ -7,8 +7,9 @@ import {
   validateApprovedPrefillFields,
 } from '../../src/prefillContract.js'
 import { isSameOrigin } from './security.js'
+import { retainPrefillSession } from './sessionStore.js'
 
-export const PREFILL_WORKER_VERSION = '0.2.0'
+export const PREFILL_WORKER_VERSION = '0.3.0'
 
 let browserPromise = null
 
@@ -190,9 +191,12 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
     serviceWorkers: 'block',
     permissions: [],
     ignoreHTTPSErrors: false,
+    viewport: { width: 1280, height: 900 },
   })
 
+  let retained = false
   let networkFrozen = false
+  let browserOffline = false
   let blockedWriteRequests = 0
   let blockedAfterFreeze = 0
   let blockedCrossOriginDocuments = 0
@@ -267,9 +271,12 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
       decision: prefillDecision(approved, liveFields),
     }))
 
-    // From this point onward no page-originated network connection may leave the
-    // browser context. Candidate values are written only after this flag flips.
+    // This is the privacy barrier. Route interception blocks page-originated HTTP(S)
+    // while Playwright offline mode disables the browser network stack before any
+    // approved candidate value is written into the live page.
     networkFrozen = true
+    await context.setOffline(true)
+    browserOffline = true
 
     const controls = page.locator('input, textarea, select, [contenteditable="true"]')
     const fields = []
@@ -296,8 +303,6 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
       }
     }
 
-    // Give synchronous/deferred input listeners a chance to attempt requests; the
-    // route remains frozen so those requests cannot carry candidate values out.
     await page.waitForTimeout(100)
 
     const finalUrl = page.url()
@@ -307,16 +312,41 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
 
     const filledCount = fields.filter(field => field.status === 'filled').length
     const rejectedCount = fields.length - filledCount
+    const previewBuffer = await page.screenshot({
+      type: 'png',
+      fullPage: false,
+      animations: 'disabled',
+      caret: 'hide',
+    })
+
+    const session = await retainPrefillSession({
+      context,
+      page,
+      connectorId: validatedRequest.connectorId,
+      targetUrl: finalUrl,
+      targetOrigin,
+      approvedFieldKeys: approvedValidation.fields.map(field => field.key),
+      requestId: validatedRequest.requestId || null,
+    })
+    retained = true
 
     return {
       url: finalUrl,
       connectorId: validatedRequest.connectorId,
       fields,
       checkpoints,
+      session,
+      preview: {
+        mimeType: 'image/png',
+        base64: previewBuffer.toString('base64'),
+        width: 1280,
+        height: 900,
+      },
       metadata: {
         filledCount,
         rejectedCount,
         networkFrozen: true,
+        browserOffline,
         submitAttempted: false,
         blockedWriteRequests,
         blockedAfterFreeze,
@@ -325,6 +355,6 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
       },
     }
   } finally {
-    await context.close().catch(() => {})
+    if (!retained) await context.close().catch(() => {})
   }
 }

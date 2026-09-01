@@ -3,6 +3,11 @@ import { createServer } from 'node:http'
 import { closeBrowser, inspectApplicationPage, WORKER_VERSION } from './inspector.js'
 import { closePrefillBrowser, prefillApplicationPage, PREFILL_WORKER_VERSION } from './prefiller.js'
 import { validateInspectRequest, validatePrefillRequest, WORKER_CONNECTORS } from './security.js'
+import {
+  closeAllPrefillSessions,
+  closePrefillSession,
+  prefillSessionStats,
+} from './sessionStore.js'
 
 const env = globalThis.process?.env || {}
 const port = Math.min(65_535, Math.max(1_024, Number(env.PORT) || 8787))
@@ -133,6 +138,7 @@ async function handlePrefill(req, res) {
       connectorId: validation.connectorId,
       filledCount: prefill.metadata.filledCount,
       rejectedCount: prefill.metadata.rejectedCount,
+      retainedSession: true,
       latencyMs: Date.now() - started,
     })
     return json(res, 200, prefill)
@@ -154,6 +160,14 @@ async function handlePrefill(req, res) {
   }
 }
 
+async function handleCloseSession(req, res) {
+  if (!authorizeJsonRequest(req, res)) return
+  const payload = await parseRequest(req, res)
+  if (payload == null) return
+  const closed = await closePrefillSession(payload.sessionId)
+  return json(res, closed ? 200 : 404, closed ? { closed: true } : { error: 'prefill_session_not_found' })
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://worker.local')
 
@@ -167,19 +181,17 @@ const server = createServer(async (req, res) => {
       configured: Boolean(expectedToken),
       connectors: WORKER_CONNECTORS,
       prefillAllowed: true,
+      prefillReviewSession: true,
       submitAllowed: false,
       activeTasks,
+      activePrefillSessions: prefillSessionStats().active,
       maxConcurrency,
     })
   }
 
-  if (req.method === 'POST' && url.pathname === '/v1/inspect') {
-    return handleInspect(req, res)
-  }
-
-  if (req.method === 'POST' && url.pathname === '/v1/prefill') {
-    return handlePrefill(req, res)
-  }
+  if (req.method === 'POST' && url.pathname === '/v1/inspect') return handleInspect(req, res)
+  if (req.method === 'POST' && url.pathname === '/v1/prefill') return handlePrefill(req, res)
+  if (req.method === 'POST' && url.pathname === '/v1/session/close') return handleCloseSession(req, res)
 
   return json(res, 404, { error: 'not_found' })
 })
@@ -190,6 +202,7 @@ server.listen(port, '0.0.0.0', () => {
 
 async function shutdown() {
   server.close()
+  await closeAllPrefillSessions()
   await Promise.all([
     closeBrowser(),
     closePrefillBrowser(),

@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { Buffer } from 'node:buffer'
 import { createServer } from 'node:http'
 
 import { closePrefillBrowser, prefillApplicationPage } from '../prefiller.js'
+import { closeAllPrefillSessions, closePrefillSession, getPrefillSession } from '../sessionStore.js'
 
 async function testServer() {
   const requests = []
@@ -43,7 +45,13 @@ async function testServer() {
   }
 }
 
-test('supervised prefill fills reviewed fields while blocking post-write exfiltration and submit', async () => {
+async function cleanup(fixture) {
+  await closeAllPrefillSessions()
+  await closePrefillBrowser()
+  await fixture.close()
+}
+
+test('supervised prefill retains frozen offline review session and blocks post-write exfiltration and submit', async () => {
   const fixture = await testServer()
   try {
     const result = await prefillApplicationPage({
@@ -73,21 +81,31 @@ test('supervised prefill fills reviewed fields while blocking post-write exfiltr
     }, { timeoutMs: 10_000 })
 
     assert.equal(result.metadata.networkFrozen, true)
+    assert.equal(result.metadata.browserOffline, true)
     assert.equal(result.metadata.submitAttempted, false)
     assert.equal(result.metadata.filledCount, 2)
     assert.equal(result.metadata.rejectedCount, 0)
     assert.deepEqual(result.fields.map(field => field.status), ['filled', 'filled'])
-    assert.equal(JSON.stringify(result).includes('asha@example.com'), false)
-    assert.equal(JSON.stringify(result).includes('Asha Rao'), false)
+    assert.match(result.session.id, /^[A-Za-z0-9_-]{32,120}$/)
+    assert.ok(await getPrefillSession(result.session.id))
+    assert.equal(result.preview.mimeType, 'image/png')
+    assert.equal(result.preview.width, 1280)
+    assert.equal(result.preview.height, 900)
+    assert.ok(result.preview.base64.length > 100)
+    assert.equal(Buffer.from(result.preview.base64, 'base64').subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
+    assert.equal(JSON.stringify(result.fields).includes('asha@example.com'), false)
+    assert.equal(JSON.stringify(result.fields).includes('Asha Rao'), false)
 
     await new Promise(resolve => setTimeout(resolve, 100))
     assert.ok(fixture.requests.includes('/'))
     assert.equal(fixture.requests.some(url => url.startsWith('/leak')), false)
     assert.equal(fixture.requests.includes('/submit'), false)
     assert.ok(result.metadata.blockedAfterFreeze >= 1)
+
+    assert.equal(await closePrefillSession(result.session.id), true)
+    assert.equal(await getPrefillSession(result.session.id), null)
   } finally {
-    await closePrefillBrowser()
-    await fixture.close()
+    await cleanup(fixture)
   }
 })
 
@@ -110,12 +128,14 @@ test('live label or kind changes are rejected before writing that field', async 
       }],
     }, { timeoutMs: 10_000 })
 
+    assert.equal(result.metadata.browserOffline, true)
     assert.equal(result.metadata.filledCount, 0)
     assert.equal(result.metadata.rejectedCount, 1)
     assert.equal(result.fields[0].status, 'rejected')
     assert.equal(result.fields[0].reason, 'approved_field_label_changed')
+    assert.ok(result.session.id)
+    assert.equal(result.preview.mimeType, 'image/png')
   } finally {
-    await closePrefillBrowser()
-    await fixture.close()
+    await cleanup(fixture)
   }
 })

@@ -50,6 +50,7 @@ test('public worker runtime exposes capabilities but never URL or bearer token',
     taskVersion: 1,
     pageContentTrust: 'untrusted',
     prefillAllowed: true,
+    prefillReviewSession: true,
     submitAllowed: false,
   })
   assert.equal(JSON.stringify(runtime).includes('worker.example'), false)
@@ -166,7 +167,8 @@ test('inspection results are bounded to field metadata and drop arbitrary worker
   assert.equal(inspection.checkpoints.captchaDetected, true)
 })
 
-test('prefill result never echoes candidate values or arbitrary worker payload', () => {
+test('prefill result keeps only review session capability and bounded PNG preview metadata', () => {
+  const sessionId = 'abcdefghijklmnopqrstuvwxyzABCDEFGH12345678'
   const result = normalizePrefillResult({
     url: 'https://jobs.lever.co/example/abc',
     connectorId: 'lever',
@@ -180,12 +182,15 @@ test('prefill result never echoes candidate values or arbitrary worker payload',
       value: 'asha@example.com',
       rawHtml: '<input>',
     }],
+    session: { id: sessionId, expiresAt: '2026-09-01T12:00:00Z', ttlSeconds: 600, internal: 'drop-me' },
+    preview: { mimeType: 'image/png', base64: 'iVBORw0KGgo=', width: 1280, height: 900, secret: 'drop-me' },
     metadata: {
       filledCount: 1,
       rejectedCount: 0,
       networkFrozen: true,
+      browserOffline: true,
       submitAttempted: false,
-      workerVersion: '0.2.0',
+      workerVersion: '0.3.0',
       secret: 'drop-me',
     },
   })
@@ -193,7 +198,12 @@ test('prefill result never echoes candidate values or arbitrary worker payload',
   assert.equal(result.fields[0].status, 'filled')
   assert.equal(Object.hasOwn(result.fields[0], 'value'), false)
   assert.equal(Object.hasOwn(result.fields[0], 'rawHtml'), false)
+  assert.equal(result.session.id, sessionId)
+  assert.equal(Object.hasOwn(result.session, 'internal'), false)
+  assert.equal(result.preview.mimeType, 'image/png')
+  assert.equal(Object.hasOwn(result.preview, 'secret'), false)
   assert.equal(result.metadata.networkFrozen, true)
+  assert.equal(result.metadata.browserOffline, true)
   assert.equal(result.metadata.submitAttempted, false)
   assert.equal(Object.hasOwn(result.metadata, 'secret'), false)
 })

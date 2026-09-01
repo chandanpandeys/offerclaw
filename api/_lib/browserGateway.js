@@ -3,6 +3,9 @@ import { validateApprovedPrefillFields } from '../../src/prefillContract.js'
 
 const MAX_FIELDS = 120
 const MAX_OPTIONS = 80
+const MAX_PREVIEW_BASE64 = 2_500_000
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{32,120}$/
+const PNG_BASE64_PREFIX = 'iVBORw0KGgo'
 const WORKER_PREFILL_CONNECTORS = Object.freeze(new Set(['greenhouse', 'lever', 'ashby']))
 
 function clean(value, max = 500) {
@@ -44,6 +47,7 @@ export function publicBrowserWorkerRuntime(config) {
     taskVersion: 1,
     pageContentTrust: 'untrusted',
     prefillAllowed: true,
+    prefillReviewSession: true,
     submitAllowed: false,
   }
 }
@@ -151,6 +155,31 @@ function normalizePrefillField(field) {
   }
 }
 
+function normalizeSession(session) {
+  const id = String(session?.id || '').trim()
+  const expiresAt = clean(session?.expiresAt, 80)
+  if (!SESSION_ID_RE.test(id) || !Number.isFinite(new Date(expiresAt).getTime())) return null
+  return {
+    id,
+    expiresAt,
+    ttlSeconds: Math.min(900, Math.max(0, Number(session?.ttlSeconds) || 0)),
+  }
+}
+
+function normalizePreview(preview) {
+  const mimeType = clean(preview?.mimeType, 80)
+  const base64 = String(preview?.base64 || '').trim()
+  if (mimeType !== 'image/png') return null
+  if (!base64.startsWith(PNG_BASE64_PREFIX)) return null
+  if (base64.length > MAX_PREVIEW_BASE64 || !/^[A-Za-z0-9+/=]+$/.test(base64)) return null
+  return {
+    mimeType,
+    base64,
+    width: Math.min(2_000, Math.max(1, Number(preview?.width) || 1280)),
+    height: Math.min(2_000, Math.max(1, Number(preview?.height) || 900)),
+  }
+}
+
 export function normalizePrefillResult(payload) {
   const fields = Array.isArray(payload?.fields)
     ? payload.fields.slice(0, 40).map(normalizePrefillField)
@@ -167,10 +196,13 @@ export function normalizePrefillResult(payload) {
       twoFactorDetected: Boolean(payload?.checkpoints?.twoFactorDetected),
       loginRequired: Boolean(payload?.checkpoints?.loginRequired),
     },
+    session: normalizeSession(payload?.session),
+    preview: normalizePreview(payload?.preview),
     metadata: {
       filledCount: Number.isInteger(Number(payload?.metadata?.filledCount)) ? Number(payload.metadata.filledCount) : 0,
       rejectedCount: Number.isInteger(Number(payload?.metadata?.rejectedCount)) ? Number(payload.metadata.rejectedCount) : 0,
       networkFrozen: Boolean(payload?.metadata?.networkFrozen),
+      browserOffline: Boolean(payload?.metadata?.browserOffline),
       submitAttempted: Boolean(payload?.metadata?.submitAttempted),
       workerVersion: clean(payload?.metadata?.workerVersion, 80) || null,
     },
