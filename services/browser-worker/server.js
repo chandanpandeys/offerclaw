@@ -1,15 +1,16 @@
 import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { closeBrowser, inspectApplicationPage, WORKER_VERSION } from './inspector.js'
-import { validateInspectRequest, WORKER_CONNECTORS } from './security.js'
+import { closePrefillBrowser, prefillApplicationPage, PREFILL_WORKER_VERSION } from './prefiller.js'
+import { validateInspectRequest, validatePrefillRequest, WORKER_CONNECTORS } from './security.js'
 
 const env = globalThis.process?.env || {}
 const port = Math.min(65_535, Math.max(1_024, Number(env.PORT) || 8787))
 const expectedToken = String(env.BROWSER_WORKER_TOKEN || '').trim()
 const maxConcurrency = Math.min(4, Math.max(1, Number(env.BROWSER_WORKER_MAX_CONCURRENCY) || 2))
 const inspectTimeoutMs = Math.min(20_000, Math.max(5_000, Number(env.BROWSER_WORKER_INSPECT_TIMEOUT_MS) || 15_000))
-const maxBodyBytes = 64 * 1024
-let activeInspections = 0
+const maxBodyBytes = 128 * 1024
+let activeTasks = 0
 
 function json(res, status, body) {
   const rendered = JSON.stringify(body)
@@ -51,26 +52,45 @@ async function readJson(req) {
   }
 }
 
-async function handleInspect(req, res) {
-  if (!expectedToken) return json(res, 503, { error: 'worker_not_configured' })
-  if (!safeEqual(bearerToken(req), expectedToken)) return json(res, 401, { error: 'unauthorized' })
-  if (!String(req.headers['content-type'] || '').toLowerCase().includes('application/json')) {
-    return json(res, 415, { error: 'json_required' })
+function authorizeJsonRequest(req, res) {
+  if (!expectedToken) {
+    json(res, 503, { error: 'worker_not_configured' })
+    return false
   }
-  if (activeInspections >= maxConcurrency) return json(res, 429, { error: 'worker_busy' })
+  if (!safeEqual(bearerToken(req), expectedToken)) {
+    json(res, 401, { error: 'unauthorized' })
+    return false
+  }
+  if (!String(req.headers['content-type'] || '').toLowerCase().includes('application/json')) {
+    json(res, 415, { error: 'json_required' })
+    return false
+  }
+  if (activeTasks >= maxConcurrency) {
+    json(res, 429, { error: 'worker_busy' })
+    return false
+  }
+  return true
+}
 
-  let payload
+async function parseRequest(req, res) {
   try {
-    payload = await readJson(req)
+    return await readJson(req)
   } catch (error) {
     const code = error?.code === 'body_too_large' ? 413 : 400
-    return json(res, code, { error: error?.code || 'invalid_request' })
+    json(res, code, { error: error?.code || 'invalid_request' })
+    return null
   }
+}
+
+async function handleInspect(req, res) {
+  if (!authorizeJsonRequest(req, res)) return
+  const payload = await parseRequest(req, res)
+  if (payload == null) return
 
   const validation = validateInspectRequest(payload)
   if (!validation.ok) return json(res, 400, { error: validation.reason })
 
-  activeInspections += 1
+  activeTasks += 1
   const started = Date.now()
   try {
     const inspection = await inspectApplicationPage(validation, { timeoutMs: inspectTimeoutMs })
@@ -92,7 +112,45 @@ async function handleInspect(req, res) {
       error: error?.code === 'navigation_scope_violation' ? 'navigation_scope_violation' : 'inspection_failed',
     })
   } finally {
-    activeInspections -= 1
+    activeTasks -= 1
+  }
+}
+
+async function handlePrefill(req, res) {
+  if (!authorizeJsonRequest(req, res)) return
+  const payload = await parseRequest(req, res)
+  if (payload == null) return
+
+  const validation = validatePrefillRequest(payload)
+  if (!validation.ok) return json(res, 400, { error: validation.reason })
+
+  activeTasks += 1
+  const started = Date.now()
+  try {
+    const prefill = await prefillApplicationPage(validation, { timeoutMs: inspectTimeoutMs })
+    console.info('browser prefill complete', {
+      requestId: validation.requestId,
+      connectorId: validation.connectorId,
+      filledCount: prefill.metadata.filledCount,
+      rejectedCount: prefill.metadata.rejectedCount,
+      latencyMs: Date.now() - started,
+    })
+    return json(res, 200, prefill)
+  } catch (error) {
+    const code = error?.code || error?.name || 'Error'
+    console.error('browser prefill failed', {
+      requestId: validation.requestId,
+      connectorId: validation.connectorId,
+      code,
+      latencyMs: Date.now() - started,
+    })
+
+    if (code === 'navigation_scope_violation' || code === 'manual_checkpoint_required') {
+      return json(res, 409, { error: code })
+    }
+    return json(res, 502, { error: 'prefill_failed' })
+  } finally {
+    activeTasks -= 1
   }
 }
 
@@ -103,18 +161,24 @@ const server = createServer(async (req, res) => {
     return json(res, 200, {
       ok: true,
       service: 'offerclaw-browser-worker',
-      version: WORKER_VERSION,
-      mode: 'inspection_only',
+      version: PREFILL_WORKER_VERSION,
+      inspectionVersion: WORKER_VERSION,
+      mode: 'inspection_and_supervised_prefill',
       configured: Boolean(expectedToken),
       connectors: WORKER_CONNECTORS,
-      writesAllowed: false,
-      activeInspections,
+      prefillAllowed: true,
+      submitAllowed: false,
+      activeTasks,
       maxConcurrency,
     })
   }
 
   if (req.method === 'POST' && url.pathname === '/v1/inspect') {
     return handleInspect(req, res)
+  }
+
+  if (req.method === 'POST' && url.pathname === '/v1/prefill') {
+    return handlePrefill(req, res)
   }
 
   return json(res, 404, { error: 'not_found' })
@@ -126,7 +190,10 @@ server.listen(port, '0.0.0.0', () => {
 
 async function shutdown() {
   server.close()
-  await closeBrowser()
+  await Promise.all([
+    closeBrowser(),
+    closePrefillBrowser(),
+  ])
 }
 
 globalThis.process?.once('SIGTERM', shutdown)
