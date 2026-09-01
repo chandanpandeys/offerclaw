@@ -140,12 +140,12 @@ test('submit_once allows one legitimate form POST, blocks foreign leak, captures
     assert.equal(outcome.status, 'submitted_confirmed')
     assert.equal(outcome.confirmationSignal, 'thank_you')
     assert.equal(outcome.network.postRequestCount, 1)
-    assert.ok(outcome.network.navigationRequestCount >= 1)
     assert.ok(outcome.network.blockedRequestCount >= 1)
     assert.equal(outcome.sessionClosed, true)
     assert.equal(await getPrefillSession(prefill.session.id), null)
 
     assert.equal(app.requests.filter(item => item.method === 'POST' && item.url === '/apply').length, 1)
+    assert.equal(app.requests.filter(item => item.method === 'GET' && item.url === '/success').length, 1)
     assert.equal(leak.requests.length, 0)
     assert.equal(JSON.stringify(outcome).includes('asha@example.com'), false)
     assert.equal(JSON.stringify(outcome).includes('Asha Rao'), false)
