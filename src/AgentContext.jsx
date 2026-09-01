@@ -4,6 +4,7 @@ import { AUTONOMY_MODE } from './autonomy'
 import { connectorSnapshot } from './connectors'
 import { evaluateApplicationPackage, snapshotJobEvidence } from './evals'
 import { buildSourceIntel } from './sourceIntel'
+import { recordSubmissionInTracker } from './submissionOutcome'
 
 function readJson(key, fallback) {
   try {
@@ -149,6 +150,10 @@ export function AgentProvider({ children }) {
     }
   }, [appPackage, profileState, setTracker])
 
+  const recordSubmission = useCallback((job, outcome) => {
+    setTracker(previous => recordSubmissionInTracker(previous, job, outcome))
+  }, [setTracker])
+
   const clearPackage = useCallback(() => {
     setAppPackage(null)
     setSelectedJob(null)
@@ -171,6 +176,7 @@ export function AgentProvider({ children }) {
       tracker: trackerState,
       setTracker,
       saveApplication,
+      recordSubmission,
       autonomyMode,
       setAutonomyMode,
       actionQueue: actionQueueState,
