@@ -52,6 +52,20 @@ test('bounded outcome strips approval/session capabilities and candidate artifac
   assert.equal(serialized.includes('asha@example.com'), false)
 })
 
+test('all valid worker outcome classes remain distinguishable in local evidence', () => {
+  for (const status of [
+    'blocked_pre_submit',
+    'submit_control_failed',
+    'not_attempted',
+    'submitted_confirmed',
+    'submitted_likely',
+    'attempted_unconfirmed',
+    'attempted_failed',
+  ]) {
+    assert.equal(boundedSubmissionOutcome(rawOutcome({ status }), NOW).status, status)
+  }
+})
+
 test('confirmed submission creates an applied tracker entry', () => {
   const next = recordSubmissionInTracker([], JOB, rawOutcome(), {
     now: NOW,
