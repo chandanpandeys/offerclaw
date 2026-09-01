@@ -28,15 +28,17 @@ function outcomeLabel(outcome) {
 export default function SupervisedPrefillPanel({ job, review, addToast }) {
   const { recordSubmission, queueAction } = useAgent()
   const request = useMemo(() => createPrefillRequestForReview(job, review), [job, review])
+  const reviewKey = useMemo(() => [
+    review?.jobId || '',
+    review?.requestUrl || '',
+    review?.metadata?.inspectedAt || '',
+  ].join('|'), [review])
   const [busy, setBusy] = useState(false)
   const [busyMode, setBusyMode] = useState(null)
   const [result, setResult] = useState(null)
-  const [submitOutcome, setSubmitOutcome] = useState(null)
+  const [submitRecord, setSubmitRecord] = useState(null)
   const sessionIdRef = useRef(null)
-
-  useEffect(() => {
-    setSubmitOutcome(null)
-  }, [review])
+  const submitOutcome = submitRecord?.reviewKey === reviewKey ? submitRecord.outcome : null
 
   useEffect(() => () => {
     const sessionId = sessionIdRef.current
@@ -69,7 +71,7 @@ export default function SupervisedPrefillPanel({ job, review, addToast }) {
     if (confirmed === false) return
 
     if (sessionIdRef.current) await cancelSession({ quiet: true })
-    setSubmitOutcome(null)
+    setSubmitRecord(null)
     setBusy(true)
     setBusyMode('prefill')
     try {
@@ -106,7 +108,7 @@ export default function SupervisedPrefillPanel({ job, review, addToast }) {
     try {
       const response = await requestSupervisedSubmit(approvalBundle.approval)
       const outcome = response.outcome
-      setSubmitOutcome(outcome)
+      setSubmitRecord({ reviewKey, outcome })
 
       if (outcome.sessionClosed) {
         sessionIdRef.current = null
