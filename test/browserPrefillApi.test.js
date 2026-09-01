@@ -91,6 +91,7 @@ function reviewableWorkerResult(overrides = {}) {
       filledCount: 1,
       rejectedCount: 0,
       networkFrozen: true,
+      browserOffline: true,
       submitAttempted: false,
       workerVersion: '0.3.0',
     },
@@ -175,6 +176,7 @@ test('valid prefill forwards approved values only to fixed worker endpoint and r
       assert.equal(res.body.prefill.fields[0].status, 'filled')
       assert.equal(Object.hasOwn(res.body.prefill.fields[0], 'value'), false)
       assert.equal(res.body.prefill.metadata.networkFrozen, true)
+      assert.equal(res.body.prefill.metadata.browserOffline, true)
       assert.equal(res.body.prefill.metadata.submitAttempted, false)
       assert.equal(res.body.prefill.session.id, SESSION_ID)
       assert.equal(res.body.prefill.preview.mimeType, 'image/png')
@@ -185,13 +187,15 @@ test('valid prefill forwards approved values only to fixed worker endpoint and r
   }
 })
 
-test('worker policy violation is rejected even after an otherwise successful response', async () => {
+test('worker policy violation is rejected when browser is not offline', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
     headers: new Headers({ 'content-type': 'application/json' }),
-    json: async () => reviewableWorkerResult({ metadata: { networkFrozen: false, submitAttempted: false } }),
+    json: async () => reviewableWorkerResult({
+      metadata: { networkFrozen: true, browserOffline: false, submitAttempted: false },
+    }),
   })
 
   try {
