@@ -31,7 +31,7 @@ export default function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store')
   return res.status(200).json({
     ok: true,
-    version: '1.7',
+    version: '1.8',
     runtime: 'vercel-functions',
     ai: publicAiRuntime(ai),
     jobs: publicJobRuntime(jobs),
@@ -46,12 +46,15 @@ export default function handler(req, res) {
       identityProfileDataInToken: false,
       scoutCloudScope: 'goals_and_compact_runs_only',
       backgroundScoutProfileUpload: false,
+      submitRequestBodiesReturned: false,
+      submitResponseBodiesReturned: false,
     },
     observability: {
       requestIds: true,
       promptLogging: false,
       responseLogging: false,
       browserPageLogging: false,
+      browserSubmitBodyLogging: false,
       identityTokenLogging: false,
       scoutPayloadLogging: false,
       cronPayloadLogging: false,
