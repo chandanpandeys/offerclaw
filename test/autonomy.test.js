@@ -38,7 +38,7 @@ test('supervised mode queues external apply handoffs for approval', () => {
   assert.equal(result.decision, DECISION.REQUIRE_APPROVAL)
 })
 
-test('planned browser-worker actions are not falsely presented as implemented', () => {
+test('live ATS browser writes require explicit approval even in Autopilot', () => {
   const prefill = evaluateAction({
     mode: AUTONOMY_MODE.AUTOPILOT,
     connectorId: 'greenhouse',
@@ -50,8 +50,8 @@ test('planned browser-worker actions are not falsely presented as implemented', 
     action: ACTION.SUBMIT_APPLICATION,
   })
 
-  assert.equal(prefill.decision, DECISION.PLANNED)
-  assert.equal(submit.decision, DECISION.PLANNED)
+  assert.equal(prefill.decision, DECISION.REQUIRE_APPROVAL)
+  assert.equal(submit.decision, DECISION.REQUIRE_APPROVAL)
 })
 
 test('LinkedIn automated submit and messaging stay blocked even in Autopilot', () => {
