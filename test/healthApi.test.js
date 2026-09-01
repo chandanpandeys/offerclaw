@@ -48,7 +48,7 @@ test('health exposes only public identity store discovery and browser capabiliti
     handler({ method: 'GET' }, res)
 
     assert.equal(res.statusCode, 200)
-    assert.equal(res.body.version, '1.8')
+    assert.equal(res.body.version, '1.0.0')
     assert.equal(res.body.identity.configured, true)
     assert.equal(res.body.identity.type, 'anonymous_device')
     assert.equal(res.body.identity.profileDataInToken, false)

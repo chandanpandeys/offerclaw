@@ -38,7 +38,7 @@ function Topbar({ runtime }) {
         {agentStatus === 'thinking' ? 'thinking...' : agentStatus === 'running' ? 'running' : 'ready'}
       </div>
       <div className="topbar-divider" />
-      <span className="text-muted text-xs text-mono">v1.1 · secure agent platform · {mode}</span>
+      <span className="text-muted text-xs text-mono">v1.0.0 · persistent career agent · {mode}</span>
       <div className="topbar-right">
         {streak > 0 && <div className="streak-badge">🔥 {streak}-day streak</div>}
       </div>
@@ -205,7 +205,7 @@ function ChatMessages({ onPrepare }) {
       {messages.length === 0 && (
         <div className="msg">
           <span className="msg-agent" style={{ color: 'var(--text-2)', fontSize: 12 }}>
-            {'— OfferClaw v1.1 — secure, quality-first job search —'}<br /><br />
+            {'— OfferClaw v1.0.0 — persistent, supervised career agent —'}<br /><br />
             {'Try:'}<br />
             {'  > find me jobs'}<br />
             {'  > analyze 1'}<br />

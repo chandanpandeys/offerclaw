@@ -1,180 +1,382 @@
-# OfferClaw — Launch Posts
+# OfferClaw v1.0.0 — Launch Kit
 
-Ready-to-use drafts for launching on HN, Reddit, Product Hunt, and Twitter/X.
+This file is the public-launch source of truth for OfferClaw.
+
+The product is inspired by the OpenClaw idea of a persistent agent with memory, tools, scheduled work and replaceable connectors, but specialized for career workflows.
+
+## Positioning
+
+**Short:**
+
+> OfferClaw is an open-source persistent career agent that scouts jobs, prepares evidence-bound applications, supervises ATS browser actions, tracks outcomes and learns what converts.
+
+**One sentence:**
+
+> Instead of operating five job portals manually, give OfferClaw your career goal and let one agent coordinate discovery, verification, preparation, supervised application actions, background scouting and follow-up state.
+
+**What makes it different:**
+
+- persistent search goals and browser-closed daily discovery
+- multi-source job ingestion instead of a single job board
+- evidence-bound drafting and deterministic claim checks
+- connector capability honesty: native, handoff, approval-gated, planned or blocked
+- supervised Greenhouse / Lever / Ashby form inspection, safe prefill, screenshot review and one-time final-submit approval
+- no automatic retry after uncertain submission outcomes
+- local-first profile/application state with optional narrow scout sync
+- local response / interview / offer conversion analytics
+
+## What v1 actually ships
+
+### Discovery
+
+- JSearch aggregation when configured
+- public read-only Greenhouse job-board ingestion
+- public read-only Lever postings ingestion
+- public read-only Ashby postings ingestion
+- normalized/deduplicated job results
+- source/apply-route intelligence
+- saved scout goals
+- optional daily browser-closed discovery using Vercel Cron + device-scoped Redis state
+
+### Application preparation
+
+- local candidate profile
+- server-side Gemini / optional Vercel AI Gateway routing
+- evidence-bound application package generation
+- deterministic unsupported-claim checks
+- saved job evidence snapshots
+- cover-letter / DM / email-subject / resume-delta preparation
+
+### Supervised application actions
+
+For supported Greenhouse, Lever and Ashby hosted forms:
+
+1. inspect the live form without candidate values;
+2. classify fields locally against candidate evidence;
+3. keep sensitive/legal/CAPTCHA/2FA/unsupported fields outside automatic prefill;
+4. ask for explicit safe-field prefill approval;
+5. freeze networking and take the browser offline before values enter the DOM;
+6. show a short-lived screenshot of the actual prefilled form;
+7. run a deterministic final-submit readiness check;
+8. require a separate short-lived `submit_once` confirmation;
+9. permit only connector-scoped submission traffic;
+10. click once, never automatically retry, destroy the retained session after an attempt, and store bounded local outcome evidence.
+
+### Tracking and learning
+
+- application tracker
+- status history
+- response / interview / offer funnel
+- source-level conversion breakdown
+- application-package evaluation scores
+- background-discovery inbox
+- local personalized reruns of background candidates
+
+## Important capability boundaries
+
+Do **not** launch with claims that OfferClaw can automatically apply everywhere.
+
+Current platform posture:
+
+| Surface | v1 behavior |
+|---|---|
+| Greenhouse | native public job discovery + supervised hosted-form actions |
+| Lever | native public job discovery + supervised hosted-form actions |
+| Ashby | native public job discovery + supervised hosted-form actions |
+| JSearch | native aggregated discovery when configured |
+| LinkedIn | research/search/apply handoffs; automated account writes remain blocked |
+| Indeed | discovery/handoff unless an approved integration is configured |
+| Naukri | conservative handoff / future authorized connector |
+| Apna | conservative handoff / future authorized connector |
+| Workday / other ATS | connector contract exists; live browser actions require separate testing before enablement |
+
+Do **not** claim:
+
+- "no backend" — OfferClaw now uses server functions and an isolated browser-worker boundary;
+- "all data stays in the browser" — profile/tracker are local-first, while optional scout sync stores only saved goals + compact run evidence;
+- "LinkedIn/Indeed/Naukri auto-apply" — that is not a v1 capability;
+- guaranteed hiring-manager identity or guessed personal email addresses;
+- guaranteed detection of fake/ghost jobs;
+- guaranteed interview/offer-rate improvements;
+- automatic CAPTCHA/2FA solving;
+- unrestricted autonomous browser control.
+
+## Launch prerequisites
+
+Do not start the public distribution sequence until these are true:
+
+- [x] Node 22 + Node 24 production CI green
+- [x] Browser-worker Chromium security/execution tests green
+- [x] Greenhouse/Lever/Ashby submit-once executor merged
+- [x] final screenshot-review → explicit submit approval UI merged
+- [x] Vercel Git deployment check green on current `master`
+- [ ] production `/api/health` reviewed with expected providers/configuration
+- [ ] isolated browser worker deployed and reachable from production
+- [ ] at least one real permitted Greenhouse/Lever/Ashby end-to-end smoke test completed
+- [ ] mobile UI smoke test completed
+- [ ] README screenshots/demo refreshed from current product
+- [ ] repository About/description/topics point to the production URL
+- [ ] final `v1.0.0` tag/release + changelog created
+- [ ] replace `<github-url>` and `<production-url>` placeholders below
+
+## 90-second demo script
+
+Use one real public role that permits normal applicant access. Avoid showing private tokens, email inboxes or sensitive profile details.
+
+**0–10s — outcome**
+
+> "OfferClaw is an open-source career agent inspired by OpenClaw. You give it a job-search goal; it coordinates discovery, application preparation, supervised actions and tracking."
+
+Show the main app + Scout Center.
+
+**10–25s — persistent scouting**
+
+Create/open a saved goal such as `AI Engineer · Bengaluru/Remote`. Show source provenance and the background-discovery inbox.
+
+**25–40s — evidence-bound preparation**
+
+Select one role. Show the evidence/job snapshot and generated application package. Point out proof checks/gaps instead of claiming the model is always correct.
+
+**40–65s — supervised ATS flow**
+
+Open a supported ATS role. Show:
+
+`Inspect → field plan → safe prefill approval → frozen screenshot review`.
+
+Emphasize that candidate values are not sent during inspection and networking is frozen before prefill values enter the page.
+
+**65–80s — final action boundary**
+
+Show the separate `Approve & submit once` confirmation. Explain connector-scoped traffic, one click and no automatic retry.
+
+Use a non-production fixture/demo if a real submission would create an unwanted application.
+
+**80–90s — feedback loop**
+
+Show tracker + Insights with applied/response/interview/offer stages and source conversion.
+
+End:
+
+> "The goal isn't mass apply. It's one persistent agent coordinating the boring parts while keeping evidence and account-affecting actions explicit."
 
 ---
 
-## 1. Hacker News — Show HN
+# Launch copy
 
-**Title:** `Show HN: OfferClaw – open-source AI job search that detects ghost jobs and contacts the human directly`
+## Hacker News — Show HN
 
-**Body:**
+**Title**
+
+`Show HN: OfferClaw – an open-source persistent agent for job hunting`
+
+**Draft**
 
 Hi HN,
 
-I built an open-source job search agent that takes a different approach from the "apply to 1,000 jobs" tools.
+I built OfferClaw, an open-source career agent inspired by the persistent-agent/tooling model behind projects like OpenClaw.
 
-**The problem:** 1 in 3 job postings are fake (ResumeBuilder 2025). 70-80% of jobs are never publicly posted. Meanwhile, AIHawk/LazyApply spam recruiters with AI-generated content — and 74% of recruiters can detect it in 20 seconds.
+The problem I wanted to solve wasn't "generate another cover letter." It was the fragmentation of job hunting: search in several places, verify the listing, tailor an application, fill forms, remember follow-ups, and then have no idea which source or strategy actually converted.
 
-**What OfferClaw does differently:**
+OfferClaw keeps those steps behind one agent/control plane:
 
-- **Ghost Detector** — scores every listing for legitimacy (posting age, salary transparency, source quality)
-- **Human Finder** — identifies the hiring manager + generates email patterns, not just "Easy Apply"
-- **Anti-AI Content** — cover letters and DMs that don't sound like ChatGPT (bans "passionate", "leverage", "synergy")
-- **Follow-Up Engine** — Day 3 DM, Day 5 email, Day 7 archive
-- **3/day sprint** — research shows 3 quality applications beat 100 random ones
+- multi-source discovery through JSearch plus public Greenhouse/Lever/Ashby feeds
+- saved search goals + optional browser-closed daily discovery
+- evidence-bound application drafting with deterministic claim checks
+- a connector registry that says whether an action is native, a handoff, approval-gated or blocked
+- supervised Greenhouse/Lever/Ashby application forms: read-only inspection → safe-field prefill → frozen screenshot review → separate one-time submit approval
+- local application/outcome tracking and source conversion analytics
 
-**Tech:** React 19 + Vite. No backend. All data stays in your browser. Optional BYOK: JSearch API for real listings, Gemini for AI personalization.
+I deliberately did not build "click Apply 1,000 times." LinkedIn automated account writes stay blocked, CAPTCHA/2FA/legal/sensitive fields stay manual, and an uncertain final submission is never automatically retried.
 
-GitHub: [link]
+The browser worker is isolated from the React app and has explicit connector/egress policies. Candidate values are not sent during form inspection; before approved values are written during prefill, the browser's networking is frozen and Playwright is switched offline. Final submit is a separate short-lived approval.
 
-Would love feedback on the ghost detection algorithm and the anti-AI prompting strategy.
+Stack: React 19, Vite 8, Vercel Functions, Gemini/AI Gateway, Playwright worker, optional Upstash Redis + Vercel Cron.
 
----
+Demo: <production-url>
+GitHub: <github-url>
 
-## 2. Reddit — r/cscareerquestions
-
-**Title:** `I built an open-source tool called OfferClaw that detects ghost jobs and contacts the hiring manager directly — here's the research behind it`
-
-**Body:**
-
-Been lurking here long enough to know the pain. Applied to 200+ jobs, got ghosted, found out half the postings were fake. So I dug into the research:
-
-- **1 in 3 job postings are fake** (ResumeBuilder, Clarify Capital 2025)
-- **74% of recruiters detect AI-generated content** in 20 seconds (Forbes)
-- **70% of jobs are never posted publicly** — filled through referrals and direct contact
-- **Day 3 follow-up** significantly increases your response rate
-- **Applying within 24h** of posting = best conversion
-
-I built OfferClaw based on these findings. It's open source, runs in your browser, and does this:
-
-1. **Finds jobs** from real APIs (LinkedIn, Indeed, Glassdoor via JSearch)
-2. **Checks if they're ghost jobs** before you waste time
-3. **Identifies the hiring manager** and generates a DM/email that doesn't sound AI-generated
-4. **Reminds you to follow up** at the right intervals
-5. **Tracks everything** so you know your response rate
-
-It's NOT a mass-apply bot. Target is 3 quality applications/day, not 1,000 random ones.
-
-No account needed. No data leaves your browser. Free.
-
-GitHub: [link]
+I'd especially value feedback on the connector/security model and on where the boundary between useful automation and applicant-controlled actions should sit.
 
 ---
 
-## 3. Reddit — r/webdev / r/sideproject
+## Reddit — r/SideProject / r/webdev / relevant open-source communities
 
-**Title:** `Open-sourced OfferClaw — AI job search agent. React 19, no backend, research-driven [Show off Saturday]`
+**Title**
 
-**Body:**
+`I built OfferClaw: an open-source persistent career agent, not a mass-apply bot`
 
-Built this over the past few weeks. It's a job search agent that runs entirely in the browser.
+**Draft**
 
-**Tech stack:**
-- React 19 + Vite
-- Vanilla CSS (dark terminal theme, no Tailwind)
-- JSearch API for real job data
-- Gemini API for AI content generation
-- localStorage only — zero backend
+I've been building OfferClaw around a simple idea: job hunting should feel like operating one agent, not manually juggling several portals, documents and follow-up notes.
 
-**Features:**
-- Ghost job detection (research says 1 in 3 postings are fake)
-- Hiring manager identification with email pattern generation
-- Anti-AI cover letter generation (bans generic ChatGPT phrases)
-- Day 3/5/7 follow-up engine
-- CSV/JSON export
-- Daily sprint system (3 apps/day target)
+v1 can:
 
-GitHub: [link]
+- discover jobs from multiple configured sources;
+- save recurring role/location goals and run optional daily discovery while the browser is closed;
+- prepare evidence-bound application material;
+- inspect supported ATS forms without sending candidate values;
+- prefill only explicitly reviewed profile-backed fields;
+- show a frozen screenshot before final action;
+- require a separate one-time confirmation for a supported ATS submission;
+- track response/interview/offer outcomes so you can see which sources convert.
 
----
+The browser automation is intentionally narrow. Greenhouse, Lever and Ashby are the first tested hosted-form connectors. LinkedIn account automation is blocked, CAPTCHA/2FA/sensitive/legal fields remain manual, and the worker never automatically retries an uncertain submission.
 
-## 4. Product Hunt
+Stack: React 19 + Vite 8 + Vercel Functions + Gemini/AI Gateway + Playwright, with optional Redis/Cron for background scouts.
 
-**Tagline:** `Don't apply. Get an offer. OfferClaw validates every posting and finds the human to contact.`
+MIT licensed.
 
-**Description:**
-OfferClaw is an open-source AI tool that finds real jobs, detects ghost postings, identifies the hiring manager, and generates content that doesn't sound AI-generated.
+Demo: <production-url>
+GitHub: <github-url>
 
-Unlike mass-apply bots, OfferClaw focuses on 3 quality applications per day — the approach research shows actually gets interviews.
-
-**Key features:**
-🔍 Ghost Detector — flags fake/stale postings before you apply
-👤 Human Finder — identifies the hiring manager, not just the form
-✍️ Anti-AI Content — cover letters recruiters actually read
-📅 Follow-Up Engine — Day 3 DM, Day 5 email, Day 7 archive
-🔐 Privacy-first — everything in your browser, no accounts
-
-**Built with:** React 19, Vite, JSearch API, Gemini API
-**Price:** Free, open source (MIT)
+Feedback on the product and the browser-agent security boundary is welcome.
 
 ---
 
-## 5. Twitter/X Thread
+## LinkedIn post
 
-**Tweet 1 (Hook):**
-1 in 3 job postings are fake.
+I’ve been working on **OfferClaw**, an open-source persistent career agent inspired by the OpenClaw-style idea of one agent coordinating tools, memory and scheduled work.
 
-74% of recruiters detect AI cover letters in 20 seconds.
+Instead of another AI cover-letter generator, I wanted a system that can coordinate the job-search loop:
 
-70% of jobs are never publicly posted.
+**discover → verify → prepare → review → act → track → learn**
 
-I built OfferClaw — a free, open-source tool based on these findings. Thread 🧵
+v1 includes multi-source job discovery, saved/background scouts, evidence-bound application drafting, source conversion analytics, and a supervised ATS workflow for Greenhouse/Lever/Ashby.
 
-**Tweet 2:**
-Most job search tools spray and pray.
+The application flow is intentionally not "full autopilot": OfferClaw inspects the form first, prefills only reviewed evidence-backed fields in a frozen browser, shows the actual prefilled screenshot, and asks separately before a one-time final submit. It never automatically retries an uncertain result.
 
-Apply to 1,000 jobs. Hope for the best.
+I also keep capability boundaries explicit: LinkedIn write automation stays blocked, CAPTCHA/2FA/legal/sensitive fields stay manual, and the app doesn't invent recruiter emails or candidate facts.
 
-Result: ~1-3% interview rate.
+Demo: <production-url>
+Code: <github-url>
 
-OfferClaw takes the opposite approach: 3 quality applications per day.
-
-**Tweet 3:**
-Every listing runs through a Ghost Detector:
-
-✓ How old is the posting? (<24h = best)
-✓ Is salary listed? (real intent signal)
-✓ Is it from a company career page? (less competition)
-✓ Are there hiring signals? (funding, growth)
-
-**Tweet 4:**
-Instead of clicking "Easy Apply" into the void, OfferClaw finds the actual hiring manager.
-
-→ LinkedIn profile search
-→ Email pattern guesses
-→ A 2-sentence DM that doesn't sound like ChatGPT wrote it
-
-Research: direct contact = 15-25% response rate vs 1-3% for mass apply.
-
-**Tweet 5:**
-Follow-up is where most people drop the ball.
-
-OfferClaw tracks your applications and prompts:
-• Day 3 → LinkedIn follow-up DM
-• Day 5 → Email follow-up
-• Day 7 → Archive and move on
-
-**Tweet 6:**
-100% free, open source, runs in your browser.
-
-No account. No data sent to any server. Bring your own API keys (free tiers available).
-
-GitHub: [link]
-
-Star it if it helps. Contributions welcome.
+I’m looking for feedback from people building agents, browser automation, recruiting tools, or just going through a job search right now.
 
 ---
 
-## Launch Timeline
+## X / Twitter thread
 
-| Day | Platform | Action |
+**Post 1**
+
+I built OfferClaw: an open-source persistent agent for job hunting.
+
+Not "AI Easy Apply x1000."
+
+One agent coordinating:
+search → evidence → application prep → supervised ATS actions → follow-up state → conversion analytics.
+
+<github-url>
+
+**Post 2**
+
+The architecture is closer to an agent control plane than a job board:
+
+• replaceable job-source connectors
+• persistent scout goals
+• scheduled background discovery
+• local candidate evidence
+• approval-gated browser worker
+• outcome tracking
+
+**Post 3**
+
+The browser boundary was the interesting part.
+
+For supported Greenhouse/Lever/Ashby forms:
+
+inspect with no candidate values → locally decide safe fields → freeze networking → prefill → screenshot review → separate submit-once approval.
+
+**Post 4**
+
+An uncertain submit is never automatically retried.
+
+LinkedIn automated writes remain blocked.
+CAPTCHA/2FA/sensitive/legal fields remain manual.
+No guessed recruiter emails.
+No fabricated resume facts.
+
+Automation should know what it is *not* allowed to do.
+
+**Post 5**
+
+React 19 + Vite 8 + Vercel Functions + Gemini/AI Gateway + Playwright + optional Upstash/Vercel Cron.
+
+MIT licensed.
+
+Demo: <production-url>
+Code: <github-url>
+
+---
+
+## Product Hunt
+
+**Name**
+
+OfferClaw
+
+**Tagline**
+
+`A persistent open-source career agent for the whole job-search loop`
+
+**Short description**
+
+OfferClaw coordinates multi-source job discovery, evidence-bound application preparation, background scouting, supervised ATS actions and outcome analytics from one persistent career-agent workflow.
+
+**Feature bullets**
+
+- Multi-source job scouting
+- Persistent saved goals + background discovery
+- Evidence-bound AI application preparation
+- Supervised Greenhouse/Lever/Ashby browser workflow
+- Separate one-time final-submit approval
+- Local-first candidate state
+- Response/interview/offer analytics
+- Open source (MIT)
+
+**Maker note angle**
+
+Talk about why the project intentionally chose supervised actions over mass application automation, and how the connector/policy design prevents a page or model from widening its own permissions.
+
+---
+
+# Distribution sequence
+
+The goal is concentrated feedback, not posting the same copy everywhere at once.
+
+| Day | Channel | Goal |
 |---|---|---|
-| **Day 0** | Twitter/X | Teaser tweet with ghost job stat |
-| **Day 1** | Hacker News | Show HN post (morning PST) |
-| **Day 1** | Twitter/X | Full thread |
-| **Day 2** | Reddit | r/cscareerquestions + r/webdev |
-| **Day 3** | GitHub | Tag v1.0.0 release with changelog |
-| **Day 7** | Product Hunt | Full launch with screenshots |
+| Day 0 | GitHub | `v1.0.0` release, README/demo/screenshots, clean production URL |
+| Day 1 | Hacker News | technical feedback + early OSS users |
+| Day 1 | LinkedIn | professional network + recruiters/AI engineers |
+| Day 2 | X/Twitter | agent/browser-automation developer reach |
+| Day 3 | Reddit | job-seeker + side-project + webdev feedback, subreddit rules permitting |
+| Day 4–6 | GitHub/communities | respond to issues, ship fixes, share technical write-up |
+| Day 7+ | Product Hunt | broader polished launch after early feedback fixes |
 
-> **Key**: Respond to EVERY comment in the first 24h. Authentic engagement > upvote count.
+## Launch-day operating rules
+
+- Do not buy votes/upvotes or coordinate fake engagement.
+- Read each community's self-promotion rules before posting.
+- Reply to technical criticism with implementation details, not marketing language.
+- Turn repeated questions into README/FAQ improvements.
+- Capture bugs as GitHub issues and fix high-signal launch blockers quickly.
+- Do not expose candidate data, provider secrets, worker tokens or private job applications in demos/screenshots.
+- If a connector is degraded, say so instead of implying every feature is live.
+
+## Metrics worth watching
+
+Prefer product-quality signals over raw impressions:
+
+- GitHub stars/forks/watchers
+- unique demo visitors
+- successful first scout run
+- saved scout goal creation
+- application-package generation
+- supervised inspection success rate
+- prefill review creation rate
+- submit outcome classes (counts only, no candidate content)
+- user-reported bugs
+- returning users
+- response/interview/offer outcomes for users who choose to track them
+
+Do not optimize the product toward raw application volume.
