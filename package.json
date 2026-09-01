@@ -1,14 +1,15 @@
 {
   "name": "offerclaw",
   "version": "1.0.0",
-  "description": "Secure quality-first job search agent with listing triage, truth-checked application drafting, human outreach, and follow-up tracking",
+  "description": "Open-source persistent career agent for job discovery, evidence-bound application preparation, supervised ATS actions, background scouting, and outcome tracking",
   "type": "module",
   "license": "MIT",
   "keywords": [
     "job-search",
     "ai-agent",
-    "career",
+    "career-agent",
     "application-tracker",
+    "browser-automation",
     "gemini",
     "react",
     "vercel-functions"
