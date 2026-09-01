@@ -204,6 +204,8 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
     browserOffline: false,
     allowedSubmitRequests: 0,
     submitPostRequests: 0,
+    submitNavigationRequests: 0,
+    submitPreflightRequests: 0,
     blockedSubmitRequests: 0,
     blockedAfterFreeze: 0,
     maxSubmitPostRequests: MAX_SUBMIT_POST_REQUESTS,
@@ -248,12 +250,17 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
           return route.abort('blockedbyclient')
         }
 
+        const verb = request.method().toUpperCase()
         if (decision.write) {
           if (networkState.submitPostRequests >= networkState.maxSubmitPostRequests) {
             networkState.blockedSubmitRequests += 1
             return route.abort('blockedbyclient')
           }
           networkState.submitPostRequests += 1
+        } else if (verb === 'OPTIONS') {
+          networkState.submitPreflightRequests += 1
+        } else if (request.isNavigationRequest() && request.resourceType() === 'document') {
+          networkState.submitNavigationRequests += 1
         }
 
         networkState.allowedSubmitRequests += 1
@@ -308,8 +315,6 @@ export async function prefillApplicationPage(validatedRequest, options = {}) {
       decision: prefillDecision(approved, liveFields),
     }))
 
-    // Privacy barrier: the browser network stack and route policy are both frozen
-    // before approved candidate values enter the live page.
     networkState.mode = 'frozen'
     await context.setOffline(true)
     networkState.browserOffline = true
