@@ -1,8 +1,8 @@
 # OfferClaw Browser Worker
 
-Playwright service for **read-only inspection and explicitly approved supervised prefill** of supported application forms.
+Playwright service for **read-only inspection, explicitly approved supervised prefill, and one-time final submission** of supported application forms.
 
-This service is intentionally separate from the Vite/Vercel web runtime because Chromium is a heavier, higher-risk execution boundary. It has **no final-submit capability**.
+This service is intentionally separate from the Vite/Vercel web runtime because Chromium is a heavier, higher-risk execution boundary. Final submission is available only through the narrow `submit_once` protocol; this is not a generic browser-control service.
 
 ## Supported connectors
 
@@ -12,7 +12,8 @@ The first runtime enables only Greenhouse, Lever and Ashby. Other connector cont
 
 - `GET /health`
 - `POST /v1/inspect` — read-only form metadata inspection
-- `POST /v1/prefill` — fill an explicit reviewed field set without submitting, then retain a frozen review session
+- `POST /v1/prefill` — fill an explicit reviewed field set, then retain a frozen review session
+- `POST /v1/submit` — consume one short-lived approval against that retained session
 - `POST /v1/session/close` — destroy one retained prefill review session
 
 All POST endpoints require the worker bearer token.
@@ -33,21 +34,50 @@ The worker re-inspects every approved live control before writing. The key, labe
 
 ### Network freeze before candidate values
 
-A form can attach JavaScript listeners that transmit values as soon as an input changes. Therefore the worker does not rely on “we never click submit” as its privacy boundary.
+The page first loads under the read-only request policy. After live revalidation and checkpoint detection, the worker freezes HTTP(S) routing, prevents WebSocket server connections, and switches the Playwright context offline. Only then are approved candidate values written into the DOM. Final submit is never clicked under `prefill_only`.
 
-The page first loads under the read-only request policy. After live revalidation and checkpoint detection, the worker freezes all HTTP(S) traffic and prevents WebSocket server connections. Only then are approved candidate values written into the DOM. Final submit is never clicked under `prefill_only`.
-
-The dedicated Chromium regression test includes a form whose email `input` handler attempts to exfiltrate the value; the leak request must never reach the fixture server.
+The Chromium regression suite includes a form whose email input handler attempts to exfiltrate the value; the leak request must never reach the fixture server.
 
 ## Retained frozen review sessions
 
-A successful prefill is not discarded immediately. The frozen Playwright context is retained behind a cryptographically random opaque session ID, and the worker captures a 1280×900 PNG viewport preview after the values are filled.
+A successful prefill is retained behind a cryptographically random opaque session ID, and the worker captures a 1280×900 PNG viewport preview after the values are filled.
 
-The default retained-session lifetime is 10 minutes, with a hard maximum of 15 minutes. The in-memory store is bounded; when full, the oldest context is destroyed before a new one is retained. Sessions are also destroyed by explicit `/v1/session/close`, expiry, eviction and process shutdown.
+The default retained-session lifetime is 10 minutes, with a hard maximum of 15 minutes. The in-memory store is bounded; when full, the oldest context is destroyed. Sessions are also destroyed by explicit `/v1/session/close`, expiry, eviction, completed submit attempts and process shutdown.
 
-The screenshot may contain approved candidate values. It is returned to the active web review UI for display, not written to worker logs or durable OfferClaw storage. Ordinary JSON field-result metadata never echoes candidate values.
+The screenshot may contain approved candidate values. It is returned only to the active web review UI for display, not written to worker logs or durable OfferClaw storage. Ordinary JSON field-result metadata never echoes candidate values.
 
-The retained session remains network-frozen. A future final-submit protocol must be a separate approval scope and must explicitly define how/when networking is allowed again; it cannot inherit submit authority from prefill.
+## Submit-once security model
+
+A submit request is accepted only when the shared approval validator and worker independently confirm:
+
+- action `submit_application`
+- approval scope `submit_once`
+- explicit user approval
+- Greenhouse, Lever or Ashby destination
+- exact connector/job URL/session binding
+- approval is unconsumed, unexpired and no more than five minutes old
+- retained session is still frozen/offline
+- approval ID has not already been used
+
+Immediately before network is re-enabled, the worker checks the live page again for CAPTCHA, 2FA, login requirements, rejected prefill results, empty visible required controls, URL changes and submit-control ambiguity.
+
+### Connector-scoped egress
+
+The submit window permits only connector-owned ATS hosts:
+
+- Greenhouse: `boards.greenhouse.io`, `job-boards.greenhouse.io`, `boards-api.greenhouse.io`
+- Lever: `jobs.lever.co`, `api.lever.co`, `jobs.eu.lever.co`, `api.eu.lever.co`
+- Ashby: `jobs.ashbyhq.com`, `api.ashbyhq.com`
+
+Within those hosts the route policy allows POSTs, OPTIONS preflight, and top-level GET/HEAD document navigation. Ordinary fetch/XHR GETs, third-party analytics, unrelated ATS hosts and WebSockets stay blocked. POSTs are capped per one-shot session.
+
+The worker clicks one deterministic submit control exactly once and never automatically retries.
+
+If no application POST or post-click navigation is observed, the browser is switched offline again and the session can remain for a new approval, but the used approval ID cannot be replayed.
+
+If an application POST or post-click navigation occurs, OfferClaw treats candidate data as potentially transmitted. The retained session is destroyed after outcome capture regardless of success, failure or uncertainty.
+
+Outcome metadata contains only status class, confirmation signal, request counts, bounded HTTP status information and final URL. Candidate values, request/response bodies and page HTML are never returned or logged.
 
 ## Local run
 
