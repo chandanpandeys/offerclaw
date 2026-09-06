@@ -123,7 +123,7 @@ function redisAndJobsFetch() {
       }
     }
 
-    if (href.startsWith('https://jsearch.p.rapidapi.com/search')) {
+    if (href.startsWith('https://jsearch.p.rapidapi.com/search-v2')) {
       return {
         ok: true,
         status: 200,
@@ -225,7 +225,7 @@ test('valid daily cron stores a non-personalized discovery and returns metadata 
       assert.equal(runtime.schedule.has(NAMESPACE), true)
       assert.ok(runtime.schedule.get(NAMESPACE) > Date.now())
 
-      const jobsCall = runtime.calls.find(call => call.href.startsWith('https://jsearch.p.rapidapi.com/search'))
+      const jobsCall = runtime.calls.find(call => call.href.startsWith('https://jsearch.p.rapidapi.com/search-v2'))
       const jobsUrl = new URL(jobsCall.href)
       assert.equal(jobsUrl.searchParams.get('query'), 'AI Engineer in India')
       assert.equal(jobsCall.options.headers['x-rapidapi-key'], 'jobs-secret')
@@ -251,3 +251,4 @@ test('cron requires a configured jobs provider before scanning the schedule inde
     }
   })
 })
+
