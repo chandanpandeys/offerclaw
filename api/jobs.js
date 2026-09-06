@@ -35,7 +35,8 @@ async function fetchJSearch({ apiKey, query, location, freshness }) {
   }
 
   const data = await upstream.json()
-  return Array.isArray(data.data) ? data.data.slice(0, 16) : []
+  const jobs = Array.isArray(data.data) ? data.data : data.data?.jobs
+  return Array.isArray(jobs) ? jobs.slice(0, 16) : []
 }
 
 export default async function handler(req, res) {
