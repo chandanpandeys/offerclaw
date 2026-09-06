@@ -16,12 +16,11 @@ function freshnessCode(hours) {
 async function fetchJSearch({ apiKey, query, location, freshnessHours, fetchImpl }) {
   const params = new URLSearchParams({
     query: `${query} in ${location}`,
-    page: '1',
     num_pages: '1',
     date_posted: freshnessCode(freshnessHours),
   })
 
-  const response = await fetchImpl(`https://jsearch.p.rapidapi.com/search?${params}`, {
+  const response = await fetchImpl(`https://jsearch.p.rapidapi.com/search-v2?${params}`, {
     headers: {
       'x-rapidapi-host': 'jsearch.p.rapidapi.com',
       'x-rapidapi-key': apiKey,
@@ -104,3 +103,4 @@ export async function discoverJobs({
     failures,
   }
 }
+
