@@ -33,7 +33,8 @@ async function fetchJSearch({ apiKey, query, location, freshnessHours, fetchImpl
   }
 
   const payload = await response.json()
-  return Array.isArray(payload?.data) ? payload.data.slice(0, 16) : []
+  const jobs = Array.isArray(payload?.data) ? payload.data : payload?.data?.jobs
+  return Array.isArray(jobs) ? jobs.slice(0, 16) : []
 }
 
 export async function discoverJobs({
