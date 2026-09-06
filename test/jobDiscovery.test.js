@@ -42,6 +42,29 @@ test('JSearch background discovery uses only goal query/location/freshness', asy
   assert.deepEqual(result.providers, ['jsearch'])
 })
 
+test('JSearch search-v2 unwraps jobs nested under data.jobs', async () => {
+  const fetchImpl = async () => response(200, {
+    data: {
+      jobs: [{
+        job_id: 'job-v2',
+        job_title: 'AI Engineer',
+        employer_name: 'Example',
+        job_apply_link: 'https://example.com/jobs/v2',
+      }],
+    },
+  })
+
+  const result = await discoverJobs({
+    env: { JSEARCH_API_KEY: 'server-key' },
+    query: 'AI Engineer',
+    location: 'Remote',
+    fetchImpl,
+  })
+
+  assert.equal(result.data.length, 1)
+  assert.equal(result.data[0].job_id, 'job-v2')
+})
+
 test('72-hour discovery maps to the provider three-day freshness window', async () => {
   let capturedUrl = null
   const fetchImpl = async (url) => {
@@ -96,3 +119,4 @@ test('background discovery fails closed when no job source is configured', async
     /jobs_not_configured/,
   )
 })
+
