@@ -16,12 +16,11 @@ function parseBody(req) {
 async function fetchJSearch({ apiKey, query, location, freshness }) {
   const params = new URLSearchParams({
     query: `${query} in ${location}`,
-    page: '1',
     num_pages: '1',
     date_posted: freshness,
   })
 
-  const upstream = await fetch(`https://jsearch.p.rapidapi.com/search?${params}`, {
+  const upstream = await fetch(`https://jsearch.p.rapidapi.com/search-v2?${params}`, {
     headers: {
       'x-rapidapi-host': 'jsearch.p.rapidapi.com',
       'x-rapidapi-key': apiKey,
@@ -115,3 +114,4 @@ export default async function handler(req, res) {
     partial: failures.length > 0,
   })
 }
+
